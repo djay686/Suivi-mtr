@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Test sms-entrant v172</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --fond: #fff; --texte: #0f172a; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fond: #0f172a; --texte: #e2e8f0; } }
+  body { background: var(--fond); color: var(--texte); margin: 0; padding: 16px; }
+  pre { font: 12px/1.45 Consolas, monospace; white-space: pre-wrap; margin: 0; }
+</style>
+</head>
+<body>
+<pre id="sortie">Chargement…</pre>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/typescript/5.4.5/typescript.min.js"></script>
+<script>
+// v172 — Fonction Edge « sms-entrant » : chaque réponse automatique est notée dans 📞 Communications, et le bon créé à
+// la confirmation reçoit les services cochés + la description. Le VRAI index.ts est transpilé ici et exécuté avec un
+// Supabase en mémoire (aucun appel réseau, rien envoyé à Twilio : la réponse TwiML est seulement lue).
+// À ouvrir servi en local à côté du dossier sms-entrant/ (fetch de sms-entrant/index.ts).
+const lignes = []; window.__fini = false; window.__sortie = lignes; let echecs = 0;
+const log = (s) => { lignes.push(s); document.getElementById("sortie").textContent = lignes.join("\n"); };
+const ok = (c, m) => { log((c ? "✅ " : "❌ ") + m); if (!c) echecs++; };
+const cp = (x) => x == null ? x : JSON.parse(JSON.stringify(x));
+const tel10 = (t) => { const d = String(t || "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : ""; };
+
+// ── Supabase en mémoire : select / insert / update / upsert / delete, filtres eq / in, single / maybeSingle ──
+const db = {}; let prochainId = 1; const pannes = new Set(); const ops = [];
+const vider = () => { for (const k of Object.keys(db)) delete db[k]; ops.length = 0; pannes.clear(); };
+function from(nom) {
+  const q = { op: "select", vals: null, f: [], un: false };
+  const exec = () => {
+    ops.push({ table: nom, op: q.op, vals: cp(q.vals) });
+    if (pannes.has(nom + ":" + q.op)) return { data: null, error: { message: "panne simulée" } };
+    const rows = (db[nom] = db[nom] || []);
+    const garde = (r) => q.f.every(fn => fn(r));
+    let data;
+    if (q.op === "select") data = rows.filter(garde).map(cp);
+    else if (q.op === "insert") {
+      data = [].concat(q.vals).map(v => Object.assign({ id: prochainId++, cree_le: new Date(Date.now() + prochainId).toISOString() }, cp(v)));
+      rows.push(...data);
+      // comme le déclencheur de la vraie base : un texto reçu crée sa ligne sms_in dans communications
+      if (nom === "sms_recus") data.forEach(r => (db.communications = db.communications || []).push({ id: prochainId++, cree_le: new Date(Date.now() + prochainId).toISOString(),
+        tel: tel10(r.de), tel_brut: r.de, canal: "sms_in", direction: "in", contenu: r.corps, statut: "a_traiter", source_table: "sms_recus", source_id: String(r.id), meta: {} }));
+    }
+    else if (q.op === "upsert") { [].concat(q.vals).forEach(v => { const i = rows.findIndex(r => r.id === v.id); if (i >= 0) rows[i] = cp(v); else rows.push(cp(v)); }); data = cp(q.vals); }
+    else if (q.op === "update") { data = rows.filter(garde); data.forEach(r => Object.assign(r, cp(q.vals))); }
+    else if (q.op === "delete") { data = rows.filter(garde); db[nom] = rows.filter(r => !garde(r)); }
+    if (q.un) data = Array.isArray(data) ? (data[0] ?? null) : data;
+    return { data, error: null };
+  };
+  const ch = new Proxy({}, { get(_, k) {
+    if (k === "then") return (res, rej) => Promise.resolve().then(exec).then(res, rej);
+    if (["insert", "update", "upsert", "delete"].includes(k)) return (v) => { q.op = k; q.vals = v; return ch; };
+    if (k === "eq") return (c, v) => { q.f.push(r => r[c] === v); return ch; };
+    if (k === "in") return (c, l) => { q.f.push(r => (l || []).includes(r[c])); return ch; };
+    if (k === "single" || k === "maybeSingle") return () => { q.un = true; return ch; };
+    return () => ch;   // select, order, limit
+  } });
+  return ch;
+}
+const createClient = () => ({ from });
+
+let handler = null;
+const Deno = { env: { get: (k) => ({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "cle", TWILIO_ACCOUNT_SID: "AC1", TWILIO_AUTH_TOKEN: "t", TWILIO_FROM: "+12569214275" })[k] }, serve: (h) => { handler = h; } };
+
+const envoyer = async (de, corps) => {
+  const res = await handler(new Request("https://x.supabase.co/functions/v1/sms-entrant", { method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ From: de, Body: corps, MessageSid: "SM" + Math.random().toString(36).slice(2) }) }));
+  const xml = await res.text();
+  const m = xml.match(/<Message>([\s\S]*)<\/Message>/);
+  return { xml, message: m ? m[1] : null };
+};
+const auto = () => (db.communications || []).filter(c => c.canal === "sms_out" && c.meta && c.meta.origine === "auto");
+const dernierRecu = () => (db.sms_recus || []).slice(-1)[0];
+const JOUR = () => { const d = new Date(); d.setDate(d.getDate() + 10); return d.toISOString().slice(0, 10); };
+const bienvenue = () => {
+  db.telephonie_config = [{ id: 1, actif: true, lien_reservation: "https://mtr.example/rdv",
+    sms_rep_1: "MTR Performance : réservez ici : {lien}", sms_rep_2: "MTR Performance : marque, modèle, année & ce que vous recherchez?",
+    sms_rep_3: "MTR Performance : quelle est votre question ?", sms_merci: "MTR Performance : bien reçu, merci!" }];
+  db.tableau = [{ id: 1, donnees: [] }, { id: 3, donnees: [{ id: "cl-1", nom: "Marc", tel: "819-555-1234" }] }, { id: 7, donnees: {} }];
+};
+
+(async () => {
+  try {
+    const src = await (await fetch(new URLSearchParams(location.search).get("src") || "sms-entrant/index.ts", { cache: "no-store" })).text();
+    const sansImport = src.replace(/^import\s*\{\s*createClient\s*\}\s*from\s*"npm:@supabase\/supabase-js@2";\s*$/m, "");
+    ok(sansImport !== src, "(source chargée : " + src.length + " car., import Supabase remplacé)");
+    const js = ts.transpileModule(sansImport, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext } }).outputText;
+    new Function("createClient", "Deno", js)(createClient, Deno);
+    ok(typeof handler === "function", "(la fonction s'enregistre avec Deno.serve)");
+    const futur = new Date(Date.now() + 86400000).toISOString();
+
+    // ══════ 1. La conversation de Jason : menu d'appel manqué → « 2 » → question → réponse → « bien reçu » ══════
+    vider(); bienvenue();
+    db.sms_menu_etat = [{ tel: "8199139743", etape: "menu", expire_le: futur }];
+    const r1 = await envoyer("+18199139743", "2");
+    const q2 = "MTR Performance : marque, modele, annee & ce que vous recherchez?";
+    ok(r1.message === q2.replace("&", "&amp;"), "« 2 » : la question part au client dans la réponse Twilio (comme avant)");
+    const a1 = auto();
+    ok(a1.length === 1 && a1[0].contenu === q2, "… et elle est maintenant NOTÉE dans Communications, texte exact (avant : aucune trace)");
+    ok(a1[0] && a1[0].tel === "8199139743" && a1[0].tel_brut === "+18199139743" && a1[0].direction === "out" && a1[0].statut === "traite" && a1[0].par === "automatique",
+      "… dans le fil du bon numéro (8199139743), envoyé, déjà traité (pas de pastille à traiter), par « automatique »");
+    ok(a1[0] && a1[0].meta.declencheur === "menu:menu:2" && a1[0].meta.en_reponse_a === dernierRecu().id, "… et on sait à quel texto elle répond (en_reponse_a = le « 2 »)");
+    const sms2 = db.communications.find(c => c.source_table === "sms_recus" && c.contenu === "2");
+    ok(sms2 && a1[0] && a1[0].id > sms2.id, "… et elle vient APRÈS le « 2 » du client dans le fil");
+    ok(db.sms_menu_etat[0] && db.sms_menu_etat[0].etape === "perf_attente", "le menu attend la réponse du client (perf_attente), comme avant");
+    const r2 = await envoyer("+18199139743", "tune pour un wolverine 850 X4 2018");
+    ok(r2.message === "MTR Performance : bien recu, merci!", "réponse du client : « bien reçu, merci! » part (comme avant)");
+    const a2 = auto();
+    ok(a2.length === 2 && a2[1].contenu === "MTR Performance : bien recu, merci!" && a2[1].meta.declencheur === "menu:perf_attente", "… et elle aussi est notée dans le fil");
+    ok(dernierRecu().resultat === "menu_performance" && (db.sms_menu_etat || []).length === 0, "résultat « menu_performance » et menu terminé (inchangé)");
+    const fil = db.communications.filter(c => c.tel === "8199139743").sort((x, y) => x.id - y.id).map(c => (c.direction === "out" ? "→ " : "← ") + c.contenu);
+    ok(fil.join(" | ") === "← 2 | → " + q2 + " | ← tune pour un wolverine 850 X4 2018 | → MTR Performance : bien recu, merci!", "le fil complet, dans l'ordre : " + fil.length + " messages");
+
+    // ══════ 2. Menu : 1 (lien), 3 (question), texte libre ══════
+    vider(); bienvenue(); db.sms_menu_etat = [{ tel: "4185550001", etape: "menu", expire_le: futur }];
+    const r3 = await envoyer("+14185550001", "1");
+    ok(r3.message === "MTR Performance : reservez ici : https://mtr.example/rdv" && auto()[0] && auto()[0].contenu === r3.message && auto()[0].meta.declencheur === "menu:menu:1", "« 1 » : le lien de réservation est envoyé ET noté");
+    db.sms_menu_etat = [{ tel: "4185550001", etape: "menu", expire_le: futur }];
+    await envoyer("+14185550001", "3");
+    ok(auto().length === 2 && auto()[1].contenu === "MTR Performance : quelle est votre question ?", "« 3 » : « quelle est votre question ? » notée");
+    await envoyer("+14185550001", "Est-ce que vous vendez des courroies?");
+    ok(auto().length === 3 && auto()[2].meta.declencheur === "menu:question_attente", "la question du client → le « bien reçu » est noté");
+
+    // ══════ 3. Hors menu : texto libre, AIDE, STOP ══════
+    vider(); bienvenue();
+    const r4 = await envoyer("+14185550002", "Allo, ma motoneige est prête?");
+    ok(r4.message === null && auto().length === 0, "texto libre sans menu : aucune réponse automatique, donc rien de noté (pas de faux message)");
+    const r5 = await envoyer("+14185550002", "aide");
+    ok(r5.message && /Pour nous joindre/.test(r5.message) && auto().length === 1 && auto()[0].meta.declencheur === "aide", "AIDE : la réponse est envoyée et notée");
+    const r6 = await envoyer("+14185550002", "STOP");
+    ok(r6.message === null && auto().length === 1, "STOP d'un numéro inconnu : pas de réponse, rien de noté");
+    const r7 = await envoyer("+18195551234", "STOP");
+    ok(r7.message && /ne recevrez plus/.test(r7.message) && auto().length === 2 && auto()[1].meta.declencheur === "stop" && auto()[1].tel === "8195551234", "STOP d'un client : la confirmation de désabonnement est notée dans son fil");
+    ok(db.tableau.find(r => r.id === 3).donnees[0].smsStop, "(le client est bien marqué désabonné, inchangé)");
+
+    // ══════ 4. Rendez-vous par texto : confirmation (et les travaux du bon) ══════
+    vider(); bienvenue();
+    const iso = JOUR();
+    db.demandes_service = [{ id: "dem-1", statut: "creneaux_envoyes", tel: "+14185550003", nom: "Julie Roy", marque: "Polaris", modele: "RZR", annee: "2020",
+      services: ["Entretien fin de saison", "Changement d'huile"], description: "", creneaux: [{ no: 1, iso, heure: "9:00", duree: 60 }, { no: 2, iso, heure: "13:00", duree: 60 }] }];
+    db.creneaux_reserves = [{ id: 51, demande_id: "dem-1", no: 1, iso, heure: "9:00", duree_min: 60, statut: "reserve" }, { id: 52, demande_id: "dem-1", no: 2, iso, heure: "13:00", duree_min: 60, statut: "reserve" }];
+    const r8 = await envoyer("+14185550003", "1");
+    ok(r8.message && /c'est confirme/.test(r8.message) && auto().length === 1 && auto()[0].contenu === r8.message && auto()[0].meta.declencheur === "confirmation", "« 1 » à des créneaux : la confirmation est envoyée ET notée");
+    const bon = db.tableau.find(r => r.id === 1).donnees[0];
+    ok(bon && bon.travaux === "Entretien fin de saison · Changement d'huile", "le bon créé reçoit les services cochés (avant : vide quand il n'y avait pas de description)");
+    ok(db.demandes_service[0].statut === "confirmee" && db.creneaux_reserves.find(c => c.id === 51).statut === "choisi" && db.creneaux_reserves.find(c => c.id === 52).statut === "libere", "(demande confirmée, créneau choisi, l'autre libéré : inchangé)");
+
+    vider(); bienvenue();
+    db.demandes_service = [{ id: "dem-2", statut: "creneaux_envoyes", tel: "+14185550004", nom: "Luc", services: "[\"Mise au point\"]", description: "Bruit au ralenti", creneaux: [{ no: 1, iso, heure: "10:00" }] }];
+    await envoyer("+14185550004", "1");
+    ok(db.tableau.find(r => r.id === 1).donnees[0].travaux === "Mise au point\nBruit au ralenti", "services en texte JSON + description : « Mise au point » puis la description");
+    vider(); bienvenue();
+    db.demandes_service = [{ id: "dem-3", statut: "creneaux_envoyes", tel: "+14185550005", nom: "Eve", services: null, description: "Changer la courroie", creneaux: [{ no: 1, iso, heure: "10:00" }] }];
+    await envoyer("+14185550005", "1");
+    ok(db.tableau.find(r => r.id === 1).donnees[0].travaux === "Changer la courroie", "sans services : la description seule (comme avant)");
+
+    // « 4 » et demandes multiples
+    vider(); bienvenue();
+    db.demandes_service = [{ id: "dem-4", statut: "creneaux_envoyes", tel: "+14185550006", nom: "Ann", creneaux: [{ no: 1, iso, heure: "10:00" }] }];
+    const r9 = await envoyer("+14185550006", "4");
+    ok(r9.message && /d'autres disponibilites/.test(r9.message) && auto().length === 1 && auto()[0].meta.declencheur === "autres_choix", "« 4 » : « on vous revient avec d'autres disponibilités » est noté");
+    vider(); bienvenue();
+    db.demandes_service = [{ id: "d-a", statut: "creneaux_envoyes", tel: "+14185550007" }, { id: "d-b", statut: "creneaux_envoyes", tel: "+14185550007" }];
+    const r10 = await envoyer("+14185550007", "2");
+    ok(r10.message && /plus d'une demande/.test(r10.message) && auto().length === 1 && auto()[0].meta.declencheur === "ambigu", "deux demandes ouvertes : « appelez-nous » est noté");
+    vider(); bienvenue();
+    const r11 = await envoyer("+14185550008", "3");
+    ok(r11.message === null && auto().length === 0, "un chiffre sans menu ni demande : pas de réponse, rien de noté");
+
+    // ══════ 5. Robustesse ══════
+    vider(); bienvenue(); db.sms_menu_etat = [{ tel: "4185550009", etape: "menu", expire_le: futur }];
+    pannes.add("communications:insert");
+    const r12 = await envoyer("+14185550009", "2");
+    ok(r12.message && /marque, modele/.test(r12.message), "si Communications refuse l'écriture, le client reçoit QUAND MÊME sa réponse");
+    vider(); bienvenue(); db.sms_menu_etat = [{ tel: "4185550010", etape: "menu", expire_le: futur }];
+    const n0 = ops.filter(o => o.op === "insert" && o.table === "communications").length;
+    await envoyer("+14185550010", "2");
+    ok(ops.filter(o => o.op === "insert" && o.table === "communications").length === n0 + 1, "une seule ligne notée par réponse (pas de doublon)");
+    ok(!ops.some(o => o.table === "communications" && o.op === "insert" && o.vals && o.vals.statut !== "traite"), "la ligne notée n'est jamais « à traiter » : pas de notification pour nos propres textos");
+    vider(); bienvenue(); db.sms_menu_etat = [{ tel: "4185550011", etape: "menu", expire_le: new Date(Date.now() - 1000).toISOString() }];
+    const r13 = await envoyer("+14185550011", "2");
+    ok(r13.message === null && auto().length === 0, "menu expiré : rien envoyé, rien noté (inchangé)");
+    const diag = await (await handler(new Request("https://x.supabase.co/functions/v1/sms-entrant?diag"))).json();
+    ok(/v172/.test(diag.note) && diag.twilio.sid === true, "?diag répond (v172)");
+  } catch (e) { ok(false, "exception : " + (e && e.stack || e)); }
+  log(echecs ? `\n${echecs} échec(s)` : "\nTout passe.");
+  log("— fin —"); window.__fini = true; window.__echecs = echecs;
+})();
+</script>
+</body></html>
