@@ -92,7 +92,7 @@ Condition de sortie : Baseline reproduite (804/804 sur 19 fichiers, hors test-v1
 ### Vague 1 — Onze lots en parallèle, un agent chacun, chacun dans son worktree et ses zones (≈ 120 min)
 Lots : SRV, COM, PCS, FAC, TAB, CALA, CALB, CAL9, CAL6, SON, BTA
 
-Condition de sortie : Pour chaque lot : son test-v177-<lot>.js rouge sur la v175 intacte, vert sur la version modifiée ; N fautes volontaires attrapées sur N ; suites de régression de sa zone vertes ; syntaxe et fumée à 0 erreur ; diff stat conforme (zones et ancres seulement) ; rapport avec ce qui n'a pas pu être vérifié. Les plus longs : SON (85 min) et TAB (85 min) ; la chaîne A10 (S0a 30 min puis CALA 60 min) finit à peu près en même temps.
+Condition de sortie : Pour chaque lot : son test-v177-<lot>.js rouge sur la v175 intacte, vert sur la version modifiée ; N fautes volontaires attrapées sur N ; suites de régression de sa zone vertes ; syntaxe et fumée à 0 erreur ; diff stat conforme (zones et ancres seulement) ; rapport avec ce qui n'a pas pu être vérifié. Les plus longs : TAB (85 min + sabotages et régression) et COM / FAC (75 min) ; SON réduit à 50 min (section 12.1) ; la chaîne A10 (S0a 45 min en vague 0, puis CALA 60 min) finit en même temps que les autres.
 
 ### Vague 2 — Intégration par Fable : fusion ordonnée, non-régression complète, v177, changelog, zip (≈ 100 min)
 Lots : INT
