@@ -4073,8 +4073,8 @@ function basculerTheme() {
         <button class="btn-secondaire gestion-seul" id="so-btn-qbo" onclick="qboEnvoyerSoumission(this)">📗 Envoyer dans QuickBooks</button>
         <button class="btn-secondaire gestion-seul" onclick="qboExporterCSV()" title="Fichier à importer dans QuickBooks : Paramètres → Importer des données → Factures">📄 CSV QuickBooks</button>
         <button class="btn-secondaire" onclick="soumOnglet('liste')">Retour</button>
-        <button class="btn-secondaire" onclick="soumVersBonTravail()">→ Bon de travail seulement</button>
-        <button class="btn-principal" onclick="soumVersRdv()">📅 Ajouter le rendez-vous au calendrier</button>
+        <button class="btn-secondaire" id="so-btn-bt" onclick="soumVersBonTravail()">→ Bon de travail seulement</button>
+        <button class="btn-principal" id="so-btn-rdv" onclick="soumVersRdv()">📅 Ajouter le rendez-vous au calendrier</button>
       </div>
     </div>
 
@@ -4438,16 +4438,22 @@ function basculerTheme() {
 
 <div class="so-pop" id="voile-repro">
   <div class="so-pop-boite">
-    <h3>📦 Pièces arrivées — replacer au calendrier</h3>
+    <h3 id="repro-h3">📦 Pièces arrivées — replacer au calendrier</h3>
     <p class="so-mini" style="margin:0 0 4px"><strong id="repro-titre"></strong></p>
     <p class="so-mini" id="repro-client" style="margin:0 0 14px"></p>
+    <p class="so-mini repro-note" id="repro-note" style="display:none"></p><!-- v178-CAL6 : mode « placer / déplacer un bon existant » -->
     <div class="so-champ">
-      <label>Temps requis pour terminer les travaux (minutes)</label>
+      <label id="repro-lbl-duree">Temps requis pour terminer les travaux (minutes)</label>
       <input id="repro-duree" type="number" step="15" min="15" inputmode="numeric" onchange="reproChercher()">
+    </div>
+    <div class="so-champ" id="repro-zone-date" style="display:none"><!-- v178-CAL6 -->
+      <label>À partir du</label>
+      <input id="repro-depart" type="date" onchange="reproChercher()">
     </div>
     <button class="btn-secondaire" style="width:100%;margin:4px 0 14px" onclick="reproChercher()">🔎 Chercher des créneaux</button>
     <div id="repro-liste"></div>
-    <button class="btn-secondaire" style="width:100%;margin-top:8px" onclick="reprogrammerFermer()">Plus tard — je place à la main</button>
+    <button class="btn-secondaire repro-lien" id="repro-lien-edition" style="display:none" onclick="reproChoisirMoiMeme()">✏️ Choisir la date et l'heure moi-même</button><!-- v178-CAL6 -->
+    <button class="btn-secondaire" id="repro-btn-fermer" style="width:100%;margin-top:8px" onclick="reprogrammerFermer()">Plus tard — je place à la main</button>
   </div>
 </div>
 
@@ -13394,6 +13400,7 @@ function soumRendreTout() {
   soumRendreForfaits();
   soumRendreLignes();
   soumTotaux();
+  try { soumMajBoutonsBon(); } catch (_) {}   // v178-CAL6 : « Placer BT-… au calendrier » / « Déplacer le rendez-vous » selon le bon lié
 }
 function soumMajChamp() {
   const s = soumCourante;
@@ -16307,13 +16314,29 @@ async function piecesArrivees(id) {
 // ── Fenêtre de reprogrammation avec 3 créneaux proposés ──
 let reproMachine = null;
 let reproCreneaux = [];
+let reproMode = "pieces";     // v178-CAL6 : "pieces" (pièces arrivées → réparation) ou "rdv" (placer / déplacer un bon déjà créé, statut inchangé)
+let reproMachineId = null;    // v178-CAL6 : le bon se retrouve par id au moment d'écrire (le tableau peut être remplacé par un autre poste)
 
-function reprogrammerOuvrir(m) {
+// v178-CAL6 : durée proposée en mode pièces = temps restant estimé (S0b) ; estimation épuisée → 15 min, pas la durée totale de la fiche
+function reproDureePieces(m) {
+  let r = null;
+  try { r = typeof resteMinutesDe === "function" ? resteMinutesDe(m) : null; } catch (_) {}
+  if (r) return r;
+  const est = m.resteAFaire && Number(String(m.resteAFaire.minutes).replace(",", "."));
+  if (est > 0 && !m.travauxTermines) return 15;
+  return m.dureeRestante || m.dureeEstimee || 60;
+}
+// v178-CAL6 : opts = { mode: "rdv", minutes } pour placer / déplacer un bon existant ; sans opts : « pièces arrivées » comme avant
+function reprogrammerOuvrir(m, opts) {
+  opts = opts || {};
   reproMachine = m;
-  const reste = m.dureeRestante || m.dureeEstimee || 60;
+  reproMachineId = m ? m.id : null;                                  // v178-CAL6
+  reproMode = opts.mode === "rdv" ? "rdv" : "pieces";                // v178-CAL6
+  const reste = reproMode === "rdv" ? (Number(opts.minutes) || m.dureeEstimee || 60) : reproDureePieces(m);
   document.getElementById("repro-titre").textContent = m.nom || "Machine";
   document.getElementById("repro-client").textContent = m.client || "";
   document.getElementById("repro-duree").value = reste;
+  reproMajMode(m);                                                   // v178-CAL6 : titre, note, « À partir du », lien, bouton du bas
   document.getElementById("repro-liste").innerHTML =
     `<div class="so-vide">Indique le temps requis, puis « Chercher des créneaux ».</div>`;
   document.getElementById("voile-repro").classList.add("ouvert");
@@ -16322,6 +16345,10 @@ function reprogrammerOuvrir(m) {
 function reprogrammerFermer() {
   document.getElementById("voile-repro").classList.remove("ouvert");
   reproMachine = null;
+  reproMode = "pieces";      // v178-CAL6
+  reproMachineId = null;     // v178-CAL6
+  reproCreneaux = [];        // v178-CAL6 : un 2e clic (double clic) sur un créneau ne fait plus rien
+  reproMajMode(null);        // v178-CAL6
 }
 
 // Chaque technicien disponible = un poste de travail. Une journée avec
@@ -16329,27 +16356,46 @@ function reprogrammerFermer() {
 // On regroupe par jour et on montre toute la capacité réelle.
 const REPRO_JOURS = 3;        // nombre de journées proposées
 const REPRO_PAR_TECH = 2;     // créneaux max par technicien et par jour
+const REPRO_JOURS_RDV = 5;    // v178-CAL6 : mode « placer / déplacer un bon » : 5 journées
+const REPRO_PAR_TECH_RDV = 4; // v178-CAL6 : … et 4 créneaux par technicien et par jour
 
 function reproChercher() {
-  const m = reproMachine;
+  const m = reproBon() || reproMachine;   // v178-CAL6 : le bon à jour (retrouvé par id), sinon l'objet d'ouverture
   if (!m) return;
+  const modeRdv = reproMode === "rdv";    // v178-CAL6
   const duree = Math.max(15, parseInt(document.getElementById("repro-duree").value, 10) || 60);
   const jours = [];
-  const dep = new Date(); dep.setHours(12, 0, 0, 0);
+  const maintenant = new Date();          // v178-CAL6 : jamais de départ déjà passé aujourd'hui
+  const aujourdhui = isoLocal(maintenant);
+  const heureMin = Math.floor((maintenant.getHours() + maintenant.getMinutes() / 60) * 4 + 1e-9) / 4 + 0.25;   // prochain quart d'heure
+  let depIso = aujourdhui;                // v178-CAL6 : « À partir du » (mode rdv), jamais avant aujourd'hui
+  if (modeRdv) { const v = String((document.getElementById("repro-depart") || {}).value || ""); if (/^\d{4}-\d{2}-\d{2}$/.test(v) && v > aujourdhui) depIso = v; }
+  const dep = new Date(depIso + "T12:00:00");
+  const nbJours = modeRdv ? REPRO_JOURS_RDV : REPRO_JOURS;
+  const parTech = modeRdv ? REPRO_PAR_TECH_RDV : REPRO_PAR_TECH;
+  const bougent = reproIdsQuiBougent(m, modeRdv);     // v178-CAL6 : le bon (+ ceux de son groupe qui suivent en mode rdv)
+  const multi = reproCapaciteActive();                // v178-CAL6 : capacité des techniciens (S0a) ; sinon comportement d'avant
 
-  for (let j = 0; j < 45 && jours.length < REPRO_JOURS; j++) {
+  for (let j = 0; j < 45 && jours.length < nbJours; j++) {
     const d = new Date(dep); d.setDate(d.getDate() + j);
     const iso = isoLocal(d);
     if (estFerie(iso)) continue;
 
     const creneaux = [];
+    const ctx = multi ? reproCtx(iso, m, bougent) : null;   // v178-CAL6
+    const offerts = {};                                     // v178-CAL6 : créneaux déjà offerts par heure de départ (≤ places libres)
     techniciensDisponibles(iso, m.type).forEach(e => {
       const h = empHeuresJour(e, iso);
       if (!h) return;
       let pris = 0;
-      for (let t = h[0]; t + duree / 60 <= h[1] + 0.001 && pris < REPRO_PAR_TECH; t += 0.25) {
+      for (let t = (iso === aujourdhui ? Math.max(h[0], heureMin) : h[0]); t + duree / 60 <= h[1] + 0.001 && pris < parTech; t += 0.25) {
         if (chevauchePause(e, iso, t, duree)) continue;
-        if (reproOccupe(iso, e.nom, t, duree, m.id)) continue;
+        if (reproOccupe(iso, e.nom, t, duree, bougent)) continue;
+        if (multi) {   // v178-CAL6 : un bon non assigné occupe une place ; pas plus de créneaux à cette heure que de places libres
+          const r = rdvPlaces(iso, t, duree / 60, { ctx, typeMachine: m.type, saufId: m.id });
+          if (!r.libres.includes(e.nom) || (offerts[t] || 0) >= r.places) continue;
+          offerts[t] = (offerts[t] || 0) + 1;
+        }
         creneaux.push({ iso, tech: e.nom, debut: t, duree });
         pris++;
         t += Math.max(1, duree / 60) - 0.25;   // évite deux propositions collées
@@ -16398,8 +16444,9 @@ function reproChercher() {
 // Un technicien est-il déjà pris à ce moment-là ?
 function reproOccupe(iso, tech, debutDec, dureeMin, sauf) {
   const fin = debutDec + dureeMin / 60;
+  const saufs = [].concat(sauf == null ? [] : sauf);   // v178-CAL6 : un id, ou la liste des bons qui bougent ensemble
   return machines.some(x => {
-    if (x.id === sauf) return false;
+    if (saufs.indexOf(x.id) >= 0) return false;
     if (x.statut === "archive") return false;
     if (x.echeance !== iso || !x.heure) return false;
     if ((x.technicien || "") !== tech) return false;
@@ -16411,20 +16458,51 @@ function reproOccupe(iso, tech, debutDec, dureeMin, sauf) {
 
 function reproChoisir(i) {
   const c = reproCreneaux[i];
-  const m = reproMachine;
-  if (!c || !m) return;
+  if (!c || reproMachineId == null) return;                    // v178-CAL6 : fenêtre déjà fermée (double clic) : rien
+  const modeRdv = reproMode === "rdv";                         // v178-CAL6 : mémorisé AVANT reprogrammerFermer (qui remet le mode)
+  const m = machines.find(x => x && x.id === reproMachineId);  // v178-CAL6 : par id, jamais l'objet d'ouverture (le tableau a pu être remplacé)
+  if (!m) {                                                    // v178-CAL6 : bon retiré sur un autre poste : AUCUNE écriture
+    reprogrammerFermer();
+    toastAviser("⚠️ Ce bon de travail n'existe plus (modifié sur un autre poste) — rien n'a été placé.", false);
+    return;
+  }
+  const bougent = reproIdsQuiBougent(m, modeRdv);
+  if (!reproCreneauLibre(m, c, bougent)) {                     // v178-CAL6 : créneau pris entre l'ouverture et le clic
+    toastAviser("⚠️ Ce créneau vient d'être pris — choisis-en un autre.", false);
+    reproChercher();
+    return;
+  }
+  const dateAvant = m.echeance;
+  const dureeAvant = Number(m.dureeEstimee) || 60;
+  if (!m.dureeInitiale && c.duree !== dureeAvant) m.dureeInitiale = dureeAvant;   // v178-CAL6 : durée d'origine gardée UNE fois (la soumission et la main-d'œuvre n'y perdent rien)
   m.echeance = c.iso;
   m.heure = decimalEnHHMM(c.debut);
   m.dureeEstimee = c.duree;
   m.technicien = c.tech;
-  m.statut = "reparation";        // les pièces sont là : le travail peut reprendre
+  if (!modeRdv) m.statut = "reparation";        // les pièces sont là : le travail peut reprendre
+  else if (m.statut === "sansrdv") m.statut = "avenir";   // v178-CAL6 : un bon daté n'est plus « sans rendez-vous » ; les autres statuts ne bougent pas
+  const suivent = [];                                      // v178-CAL6 : mode rdv, les autres bons du même rendez-vous (groupe) suivent
+  if (modeRdv) reproGroupeAutres(m).forEach(x => {
+    x.echeance = c.iso; x.heure = m.heure;
+    if (x.statut === "sansrdv") x.statut = "avenir";
+    suivent.push(x);
+  });
+  let soumTouchee = false;                                 // v178-CAL6 : la date suit sur les soumissions du bon (sans toucher à la main-d'œuvre)
+  [m].concat(suivent).forEach(b => rdvSoumissionsDuBon(b).forEach(so => {
+    if (so.rdvIso !== b.echeance || so.rdvHeure !== b.heure) { so.rdvIso = b.echeance; so.rdvHeure = b.heure; soumTouchee = true; }
+  }));
   sauvegarder();
+  if (soumTouchee) soumSauver();
   reprogrammerFermer();
   const d = new Date(c.iso + "T12:00");
-  toastAviser("📅 " + m.nom + " — " +
-    d.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" }) +
-    " à " + m.heure + " avec " + c.tech, true);
-  if (document.getElementById("cal-page").classList.contains("ouvert")) calRendre();
+  const quand = d.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" }) + " à " + m.heure + " avec " + c.tech;
+  toastAviser(modeRdv
+    ? "📅 " + (dateAvant ? "Rendez-vous déplacé" : "Placé au calendrier") + " — " + (m.numeroBT ? m.numeroBT + " " : "") + (m.nom || "") + " — " + quand +
+      (suivent.length ? " (+ " + suivent.length + " autre" + (suivent.length > 1 ? "s" : "") + " machine" + (suivent.length > 1 ? "s" : "") + " du même rendez-vous)" : "")
+    : "📅 " + m.nom + " — " + quand, true);
+  try { soumMajBoutonsBon(); } catch (_) {}                // v178-CAL6
+  if (modeRdv) { try { reproOuvrirCalendrierSur(c.iso); } catch (_) {} }   // v178-CAL6 : le calendrier s'ouvre sur la semaine du créneau
+  else if (document.getElementById("cal-page").classList.contains("ouvert")) calRendre();
 }
 
 // ── Catalogue de pièces ────────────────────────────────────
@@ -16911,7 +16989,13 @@ function soumVersBonTravail() {
   const s = soumCourante;
   if (!s) return;
   if (!s.clientNom) { alert("Il faut un nom de client avant de créer le bon de travail."); return; }
-  if (s.machineId && machines.some(x => x.id === s.machineId)) { alert("Un bon de travail existe déjà pour cette soumission."); return; }
+  const bonsLies = soumBonsLies(s);   // v178-CAL6
+  if ((s.machineId && machines.some(x => x.id === s.machineId)) || bonsLies.some(soumBonPlacable)) {   // v178-CAL6 : message clair (n° du bon), plus de cul-de-sac
+    const bonLie = bonsLies.find(x => x.id === s.machineId) || bonsLies[0];
+    alert("Un bon de travail existe déjà pour cette soumission" + (bonLie && bonLie.numeroBT ? " (" + bonLie.numeroBT + ")" : "") + "." +
+      (bonsLies.some(soumBonPlacable) ? "\n\nUtilise « 📅 Placer au calendrier » (ou « 📅 Déplacer le rendez-vous » s'il a déjà une date) pour le mettre à l'horaire : aucun nouveau bon ne sera créé." : ""));
+    return;
+  }
   const m = soumMachineDepuis(s);
   const blocs = soumBlocsMachines(s);
   if (blocs.length > 1) {
@@ -16954,11 +17038,9 @@ function soumVersBonTravail() {
 function soumVersRdv() {
   const s = soumCourante;
   if (!s) return;
+  const bonsLies = soumBonsLies(s);                                      // v178-CAL6 : A6, un bon déjà créé se place ou se déplace
+  if (bonsLies.length) { soumPlacerBonExistant(s, bonsLies); return; }   // v178-CAL6 : plus d'alerte bloquante (le flux « nouveau BT » ci-dessous reste celui d'une soumission sans bon)
   if (!s.clientNom) { alert("Il faut un nom de client avant de prendre le rendez-vous."); return; }
-  if (s.machineId && machines.some(x => x.id === s.machineId)) {
-    alert("Un bon de travail existe déjà pour cette soumission. Déplace son rendez-vous directement dans le calendrier.");
-    return;
-  }
   const heures = soumTempsAtelier(s);
   if (heures <= 0 && !confirm("Aucune main-d'œuvre n'est inscrite sur la soumission.\n\nContinuer avec une durée d'une heure ?")) return;
   const minutes = Math.max(30, Math.round(((heures || 1) * 60) / 15) * 15);
@@ -20058,7 +20140,7 @@ async function invPrixVerifie(num) {
 
 // Durée du rendez-vous convertie en heures facturables (2 décimales)
 function rdvHeuresMO(m) {
-  const min = Number(m && m.dureeEstimee) || 60;
+  const min = Number(m && (m.dureeInitiale || m.dureeEstimee)) || 60;   // v178-CAL6 : la base de la main-d'œuvre est la durée d'origine, pas le bloc réduit d'une reprise
   return Math.round((min / 60) * 100) / 100;
 }
 function rdvDureeTexte(m) {
@@ -20327,6 +20409,7 @@ function rdvSyncSoumission(m, dureeAvant) {
   if (!m || !m.soumissionId) return;
   const s = rdvSoumLiee(m);
   if (!s) return;
+  // v178-CAL6 : « a bougé » compare le bloc saisi au formulaire ; la main-d'œuvre, elle, se lit par rdvHeuresMO (dureeInitiale || dureeEstimee)
   if ((Number(m.dureeEstimee) || 0) === (Number(dureeAvant) || 0)) {
     // La durée n'a pas bougé : on tient seulement la date à jour
     if (s.rdvIso !== (m.echeance||"") || s.rdvHeure !== (m.heure||"")) {
@@ -30624,8 +30707,151 @@ setInterval(() => {
 <script id="v178-CALB"></script>
 <style id="v178-CAL9"></style>
 <script id="v178-CAL9"></script>
-<style id="v178-CAL6"></style>
-<script id="v178-CAL6"></script>
+<style id="v178-CAL6">
+/* v178-CAL6 : fenêtre « Placer au calendrier / Déplacer le rendez-vous » (#voile-repro) et boutons de la soumission */
+#voile-repro .repro-note { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); color: var(--encre-2); font-size: 13px; line-height: 1.35; }
+#voile-repro .repro-lien { width: 100%; margin-top: 8px; min-height: 44px; }
+#voile-repro #repro-btn-fermer { min-height: 44px; }
+#voile-repro #repro-depart { font-size: 16px; min-height: 44px; }
+#so-btn-bt:disabled { opacity: .45; cursor: not-allowed; }
+</style>
+<script id="v178-CAL6">
+// ═══ v178-CAL6 (A6) : un bon de travail déjà créé depuis une soumission se place ou se déplace au calendrier ═══
+// Avant : « Un bon de travail existe déjà pour cette soumission. Déplace son rendez-vous directement dans le calendrier. »
+// (cul-de-sac). Maintenant le bouton ouvre la fenêtre de créneaux (#voile-repro) en mode « rdv » : aucun nouveau bon, le
+// bon existant reçoit la date, l'heure, le technicien et la durée ; son statut ne change pas (sansrdv → avenir).
+// Les fonctions de la fenêtre (reprogrammerOuvrir, reproChercher, reproChoisir, reproOccupe) sont dans le script principal.
+
+// Statuts où un bon ne se replace plus au calendrier d'ici : archivé, facturation, assurance, commande de pièce
+const SOUM_STATUTS_NON_PLACABLES = ["archive", "afacturer", "prete", "assurance", "commande"];
+function soumBonPlacable(m) { return !!m && SOUM_STATUTS_NON_PLACABLES.indexOf(m.statut) < 0; }
+// Bons liés à une soumission : le bon qu'elle désigne (s.machineId) ou ceux qui la désignent (m.soumissionId).
+// JAMAIS par demandeId : la soumission de la 2e machine d'une demande web reçoit le même demandeId et lierait le mauvais bon.
+function soumBonsLies(s) {
+  if (!s) return [];
+  return (Array.isArray(machines) ? machines : []).filter(m => m && ((s.machineId && m.id === s.machineId) || (s.id && m.soumissionId === s.id)));
+}
+// Le bon à placer : celui que désigne la soumission s'il est plaçable, sinon le premier plaçable ; null s'il n'y en a aucun
+function soumBonAPlacer(s, bons) {
+  const L = (bons || soumBonsLies(s)).filter(soumBonPlacable);
+  return L.find(x => s && x.id === s.machineId) || L[0] || null;
+}
+function soumStatutBonTexte(m) {
+  if (m && m.statut === "archive") return "Archivé";
+  const st = (typeof STATUTS !== "undefined" ? STATUTS : []).find(x => m && x.id === m.statut);
+  return st ? st.label : ((m && m.statut) || "statut inconnu");
+}
+function soumQuandBonTexte(m) {
+  if (!m || !m.echeance) return "";
+  const d = new Date(m.echeance + "T12:00:00");
+  return d.toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + (m.heure ? " à " + m.heure : "");
+}
+// « 📅 Ajouter le rendez-vous au calendrier » quand la soumission a déjà un bon
+function soumPlacerBonExistant(s, bons) {
+  const m = soumBonAPlacer(s, bons);
+  if (!m) {   // Prêt à facturer, Facturé, Assurance, Commande, Archivé : on ne ressort pas un bon de sa colonne d'ici
+    const L = (bons || []).slice().sort((a, b) => (b.id === s.machineId) - (a.id === s.machineId));
+    const nom = (x) => (x.numeroBT || "sans numéro");
+    alert(L.length === 1
+      ? "Le bon de travail " + nom(L[0]) + " de cette soumission est à l'état « " + soumStatutBonTexte(L[0]) + " » : il ne peut pas être remis au calendrier d'ici.\n\nSi le travail doit être refait, change d'abord son statut dans le tableau."
+      : "Les bons de travail de cette soumission (" + L.map(x => nom(x) + " : " + soumStatutBonTexte(x)).join(" ; ") + ") ne peuvent pas être remis au calendrier d'ici.\n\nSi le travail doit être refait, change d'abord leur statut dans le tableau.");
+    return false;
+  }
+  const num = m.numeroBT || "le bon de travail";
+  if (m.echeance && !confirm("Le bon " + num + (m.nom ? " (" + m.nom + ")" : "") + " est déjà au calendrier : " + soumQuandBonTexte(m) + ".\n\nLe déplacer ?")) return false;
+  // Les liens se posent APRÈS le confirm (Annuler ne laisse aucune trace) ; un lien déjà valide n'est jamais remplacé
+  let bonModifie = false, soumModifiee = false;
+  if (!m.soumissionId) { m.soumissionId = s.id; bonModifie = true; }
+  if (!s.machineId || !machines.some(x => x.id === s.machineId)) { s.machineId = m.id; soumModifiee = true; }
+  if (bonModifie) sauvegarder();
+  if (soumModifiee) soumSauver(); else soumVider();   // la soumission reste ouverte dessous : ses changements sont poussés
+  reprogrammerOuvrir(m, { mode: "rdv", minutes: Math.max(15, Number(m.dureeEstimee) || 60) });   // PAS ouvrirCalendrier avant : la fenêtre (z-index 140) passerait sous le calendrier (200)
+  return true;
+}
+// Libellés des deux boutons du bas de la soumission selon le bon lié. Null-sûre : soumRendreTout est aussi appelée
+// par la synchro serveur, avec soumCourante parfois nulle.
+function soumMajBoutonsBon() {
+  const bBt = document.getElementById("so-btn-bt"), bRdv = document.getElementById("so-btn-rdv");
+  if (!bBt || !bRdv) return;
+  const s = soumCourante;
+  const m = s ? soumBonAPlacer(s) : null;
+  if (m) {
+    bRdv.textContent = m.echeance ? "📅 Déplacer le rendez-vous" : "📅 Placer " + (m.numeroBT || "le bon de travail") + " au calendrier";
+    bRdv.title = m.echeance ? "Le bon " + (m.numeroBT || "") + " est au calendrier : " + soumQuandBonTexte(m) : "Le bon de travail existe déjà : aucun nouveau bon ne sera créé.";
+    bBt.disabled = true;
+    bBt.title = "Un bon de travail existe déjà pour cette soumission.";
+  } else {   // aucun bon, ou seulement des bons non plaçables : libellés d'origine (le clic produit l'alerte claire)
+    bRdv.textContent = "📅 Ajouter le rendez-vous au calendrier";
+    bRdv.title = "";
+    bBt.disabled = false;
+    bBt.title = "";
+  }
+}
+
+// ── Fenêtre de créneaux : aides du mode « rdv » ──
+// Le bon à jour, retrouvé par id (le tableau peut avoir été remplacé par un autre poste depuis l'ouverture)
+function reproBon() { return reproMachineId == null ? null : (machines.find(x => x && x.id === reproMachineId) || null); }
+// Les autres bons du même rendez-vous (rdvGroupe) qui suivent le déplacement : plaçables et pas en réparation
+function reproGroupeAutres(m) {
+  if (!m || !m.rdvGroupe) return [];
+  return machines.filter(x => x && x.id !== m.id && x.rdvGroupe === m.rdvGroupe && soumBonPlacable(x) && x.statut !== "reparation");
+}
+function reproIdsQuiBougent(m, modeRdv) {
+  return [m.id].concat(modeRdv ? reproGroupeAutres(m).map(x => x.id) : []);
+}
+function reproCapaciteActive() {
+  return typeof CAPACITE_MULTI_TECHS !== "undefined" && CAPACITE_MULTI_TECHS === true && typeof rdvPlaces === "function" && typeof rdvCtx === "function";
+}
+// Pré-calcul d'un jour (S0a) sans les bons qui bougent avec celui qu'on place
+function reproCtx(iso, m, bougent) {
+  const ctx = rdvCtx(iso, { typeMachine: m.type, saufId: m.id });
+  ctx.intervalles = ctx.intervalles.filter(o => bougent.indexOf(o.id) < 0);
+  return ctx;
+}
+// Le créneau est-il encore libre MAINTENANT ? (un autre poste a pu le prendre depuis l'ouverture de la fenêtre)
+function reproCreneauLibre(m, c, bougent) {
+  if (reproOccupe(c.iso, c.tech, c.debut, c.duree, bougent)) return false;
+  if (reproCapaciteActive()) {
+    const r = rdvPlaces(c.iso, c.debut, c.duree / 60, { ctx: reproCtx(c.iso, m, bougent), typeMachine: m.type, saufId: m.id });
+    if (!r.libres.includes(c.tech) || r.places < 1) return false;
+  }
+  return true;
+}
+// Titre, note, champ « À partir du », lien de secours et bouton du bas selon le mode (m nul : tout se range)
+function reproMajMode(m) {
+  const rdv = reproMode === "rdv" && !!m;
+  const sur = (id, f) => { const e = document.getElementById(id); if (e) f(e); };
+  sur("repro-h3", e => { e.textContent = rdv ? (m.echeance ? "📅 Déplacer le rendez-vous" : "📅 Placer au calendrier") : "📦 Pièces arrivées — replacer au calendrier"; });
+  sur("repro-lbl-duree", e => { e.textContent = rdv ? "Durée du rendez-vous (minutes)" : "Temps requis pour terminer les travaux (minutes)"; });
+  sur("repro-note", e => {
+    const autres = rdv ? reproGroupeAutres(m).length : 0;
+    e.textContent = !rdv ? "" : "Le bon " + (m.numeroBT || "de travail") + " existe déjà : aucun nouveau bon ne sera créé." +
+      (m.echeance ? " Actuellement : " + soumQuandBonTexte(m) + "." : "") +
+      (autres ? " " + autres + " autre" + (autres > 1 ? "s" : "") + " machine" + (autres > 1 ? "s" : "") + " du même rendez-vous " + (autres > 1 ? "suivent" : "suit") + " à la même heure." : "");
+    e.style.display = rdv ? "" : "none";
+  });
+  sur("repro-zone-date", e => { e.style.display = rdv ? "" : "none"; });
+  sur("repro-depart", e => { const auj = isoLocal(new Date()); e.min = auj; e.value = auj; });
+  sur("repro-lien-edition", e => { e.style.display = rdv ? "" : "none"; });
+  sur("repro-btn-fermer", e => { e.textContent = rdv ? "Annuler" : "Plus tard — je place à la main"; });
+}
+// « ✏️ Choisir la date et l'heure moi-même » : le formulaire du bon (f-echeance, f-heure), par-dessus la soumission
+function reproChoisirMoiMeme() {
+  const id = reproMachineId;
+  const existe = id != null && machines.some(x => x && x.id === id);
+  reprogrammerFermer();
+  if (!existe) { toastAviser("⚠️ Ce bon de travail n'existe plus (modifié sur un autre poste).", false); return; }
+  ouvrirEdition(id);
+  document.getElementById("voile").classList.add("par-dessus-cal");   // le formulaire (z-index 50) passerait sous la soumission (120)
+}
+// Le calendrier s'ouvre sur la semaine du créneau (samedi / dimanche en vue « travail » : vue « semaine », sinon on ne le verrait pas)
+function reproOuvrirCalendrierSur(iso) {
+  if (!document.getElementById("cal-page").classList.contains("ouvert")) ouvrirCalendrier();
+  calAncre = new Date(iso + "T12:00:00");
+  const j = calAncre.getDay();
+  if ((j === 0 || j === 6) && calVueActuelle === "travail") calVue("semaine"); else calRendre();
+}
+</script>
 <style id="v178-SON"></style>
 <script id="v178-SON"></script>
 <style id="v178-BTA"></style>
