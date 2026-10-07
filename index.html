@@ -2159,6 +2159,30 @@ function basculerTheme() {
   <div class="cal-corps" id="od-corps"></div>
 </div>
 
+<!-- v178 BTA : Bons de travail actifs (plein écran) — tous les bons sauf les archivés, en consultation : on déplie une ligne, le live ne s'ouvre jamais au toucher.
+     L'entête (recherche, tri) est HORS de la zone redessinée : la frappe ne saute pas quand un autre poste enregistre. -->
+<div class="cal-page bta-page" id="bta-page" data-section="bonsActifs">
+  <div class="cal-entete bta-entete">
+    <div class="cal-entete-gauche">
+      <button class="btn-secondaire" onclick="fermerBonsActifs()">‹ Retour</button>
+      <h2>📑 Bons de travail actifs</h2>
+    </div>
+    <div class="bta-outils">
+      <input id="bta-recherche" class="bta-recherche" type="search" placeholder="🔍 BT, client, machine, téléphone, série, travaux…" aria-label="Chercher dans les bons actifs"
+             autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="btaRecherche(this.value)">
+      <select id="bta-tri" class="bta-tri" aria-label="Trier les bons" onchange="btaTri(this.value)">
+        <option value="statut">Trier : par statut</option>
+        <option value="bt">Trier : n° BT (le plus récent)</option>
+      </select>
+    </div>
+  </div>
+  <div class="cal-corps bta-corps">
+    <div id="bta-resume" class="bta-resume"></div>
+    <div id="bta-chips" class="bta-chips"></div>
+    <div id="bta-liste" class="bta-liste" onkeydown="btaTouche(event)"></div>
+  </div>
+</div>
+
 <!-- v167 : procédure de travail (créée par Claude) — fenêtre de création et visionneuse plein écran -->
 <div class="live-modale" id="voile-proc" onclick="if(event.target===this)procedureFermerDialogue()">
   <div class="live-boite proc-boite" id="proc-boite"></div>
@@ -3852,6 +3876,7 @@ function basculerTheme() {
          oninput="afficher()" autocomplete="off">
   <button class="menu-item" data-section="calendrier" onclick="menuAller('ouvrirCalendrier')"><span class="i">📅</span>Calendrier</button>
   <button class="menu-item" data-section="ordre" onclick="menuAller('ouvrirOrdre')"><span class="i">🔧</span>Ordre de travail</button>
+  <button class="menu-item" data-section="bonsActifs" onclick="menuAller('ouvrirBonsActifs')"><span class="i">📑</span>Bons de travail actifs</button>
   <button class="menu-item" data-section="soumissions" onclick="menuAller('ouvrirSoumissions')"><span class="i">🧾</span>Soumissions</button>
   <button class="menu-item" data-section="inventaire" onclick="menuAller('ouvrirInventaire')"><span class="i">📦</span><span id="btn-inventaire">Inventaire</span></button>
   <button class="menu-item" data-section="ecranAtelier" onclick="menuAller('ouvrirEcranAtelier')"><span class="i">📺</span>Écran atelier</button>
@@ -5412,6 +5437,7 @@ function rafraichirVues() {
   //@@v178-A4 rafraichir
   //@@v178-A9 rafraichir
   //@@v178-A12 rafraichir
+  try { if (typeof btaRafraichir === "function") btaRafraichir(); } catch (_) {}   // v178 BTA : Bons de travail actifs
 }
 
 // ═══ v168 — LA LIGNE 1 N'EST PLUS ÉCRASÉE À L'AVEUGLE ══════════════
@@ -22146,6 +22172,285 @@ function enregistrerEtatArrivee(id, e) {
   sauvegarder();
 }
 //@@v178-A12 bloc
+// ═══ v178 BTA — « Bons de travail actifs » : tous les bons sauf les archivés, en CONSULTATION ═══
+// On déplie une ligne pour tout voir sans ouvrir le live (le live démarre un punch et remet le bon en « Réparation en cours »).
+// Rien ici n'écrit dans un bon : ni sauvegarder, ni liveNotes (qui crée m.notesLive à la lecture), ni ouvrirLive au toucher.
+// Les seules actions sont les boutons de la ligne dépliée (ouvrir en live avec confirmation, bon imprimable, modifier pour l'administration).
+const BTA_PAGE = 100;                                                                // lignes affichées d'un coup
+const BTA_ORDRE = ["reparation", "attente", "sansrdv", "avenir", "afacturer", "prete", "assurance", "commande"];   // ordre du tri « statut » (après les bons en live)
+const BTA_COURT = { avenir: "À venir", sansrdv: "Sans RDV", attente: "Attente pièce", reparation: "En réparation", afacturer: "Prêt à facturer", prete: "Facturé", assurance: "Assurance", commande: "Commande" };
+const BTA_CLE_PREFS = "mtr_bta_prefs";                                               // seul le tri est mémorisé (par appareil)
+// Filtre et recherche repartent à zéro à chaque ouverture ; les lignes dépliées survivent aux redessins (synchro d'un autre poste, minuterie).
+const btaEtat = { filtre: "tous", q: "", tri: "statut", limite: BTA_PAGE, ouverts: new Set(), timer: null };
+
+function btaOuvert() { const p = document.getElementById("bta-page"); return !!(p && p.classList.contains("ouvert")); }
+// Tous les bons sauf les archivés (ils restent dans « Archives »)
+function btaActifs() { return (Array.isArray(machines) ? machines : []).filter(m => m && typeof m === "object" && m.statut !== "archive"); }
+function btaEnLive(m) { try { return liveSessions(m).length > 0; } catch (_) { return false; } }
+function btaSansAccent(t) { return String(t == null ? "" : t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
+// Texte cherchable d'un bon : BT, carton, client, machine, téléphone (tel quel et en chiffres), série, travaux
+function btaMeule(m) {
+  const tel = String(m.tel == null ? "" : m.tel);
+  return btaSansAccent([m.numeroBT, m.numeroMachine, m.client, nomMachine(m), m.reference, m.numModele, m.plaque, m.descriptionMachine, m.travaux, tel, tel.replace(/\D/g, "")]
+    .map(v => (v == null ? "" : String(v))).join(" \n "));
+}
+function btaMots(q) { return btaSansAccent(q).split(/\s+/).map(w => w.replace(/[()]/g, "")).filter(Boolean); }
+function btaMotOk(meule, w) {
+  if (meule.indexOf(w) >= 0) return true;
+  const chiffres = /^[\d.\-]+$/.test(w) ? w.replace(/\D/g, "") : "";            // « 819-555 » trouve un téléphone saisi « 819 555 0101 »
+  return chiffres.length >= 3 && meule.indexOf(chiffres) >= 0;
+}
+function btaNumBT(m) { const r = /(\d+)/.exec(String(m.numeroBT || "")); return r ? parseInt(r[1], 10) : -1; }
+function btaArriveeMs(m) { const a = arriveeDe(m); const t = a ? Date.parse(a.date) : NaN; return isNaN(t) ? Infinity : t; }
+function btaRdvMs(m) {
+  const e = String(m.echeance || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(e)) return Infinity;
+  const h = /^(\d{1,2}):(\d{2})/.exec(String(m.heure || ""));
+  const t = Date.parse(e + "T" + (h ? String(h[1]).padStart(2, "0") + ":" + h[2] : "00:00") + ":00");
+  return isNaN(t) ? Infinity : t;
+}
+// Tri « statut » : bons en live d'abord, puis réparation, attente, sans RDV, à venir, prêt à facturer, facturé, assurance, commande ;
+// dans chaque groupe le plus ancien arrivé d'abord (arriveeDe : arrivée, premier punch ou création), puis le rendez-vous, puis le n° BT.
+// Tri « n° BT » : numérique décroissant (BT-100 avant BT-99).
+function btaTrier(liste) {
+  const cles = liste.map(m => {
+    const i = BTA_ORDRE.indexOf(m.statut);
+    return { m, rang: btaEnLive(m) ? -1 : (i < 0 ? BTA_ORDRE.length : i), arr: btaArriveeMs(m), rdv: btaRdvMs(m), bt: btaNumBT(m), id: String(m.id == null ? "" : m.id) };
+  });
+  if (btaEtat.tri === "bt") cles.sort((a, b) => (b.bt - a.bt) || a.id.localeCompare(b.id));
+  else cles.sort((a, b) => (a.rang - b.rang) || (a.arr - b.arr) || (a.rdv - b.rdv) || (a.bt - b.bt) || a.id.localeCompare(b.id));   // Infinity - Infinity = NaN : on passe au critère suivant
+  return cles.map(c => c.m);
+}
+// Recherche + compteurs des pastilles (sur ce que la recherche a trouvé) + liste filtrée et triée
+function btaCalcul() {
+  const actifs = btaActifs();
+  const mots = btaMots(btaEtat.q);
+  const trouves = mots.length ? actifs.filter(m => { const s = btaMeule(m); return mots.every(w => btaMotOk(s, w)); }) : actifs;
+  const compte = { tous: trouves.length, live: 0, autre: 0 };
+  BTA_ORDRE.forEach(id => { compte[id] = 0; });
+  trouves.forEach(m => {
+    if (btaEnLive(m)) compte.live++;
+    if (BTA_ORDRE.indexOf(m.statut) >= 0) compte[m.statut]++; else compte.autre++;
+  });
+  const f = btaEtat.filtre;
+  const filtres = f === "tous" ? trouves : trouves.filter(m => f === "live" ? btaEnLive(m) : f === "autre" ? BTA_ORDRE.indexOf(m.statut) < 0 : m.statut === f);
+  return { total: actifs.length, trouves, compte, visibles: btaTrier(filtres) };
+}
+// Notes d'atelier, en lecture seule. NE JAMAIS appeler liveNotes(m) ici : elle écrit m.notesLive quand il est absent.
+// Même lecture qu'elle (notesLive, sinon les lignes de notesTech) mais sans rien affecter au bon. Les notes « ⏳ Reste à faire »
+// sont masquées quand le reste à faire est affiché à part.
+function btaNotes(m) {
+  try {
+    if (!m || typeof m !== "object") return [];
+    let liste;
+    if (Array.isArray(m.notesLive)) liste = m.notesLive;
+    else liste = String(m.notesTech || "").split("\n").map(t => t.replace(/^[\s•\-\*·]+/, "").trim()).filter(Boolean).map(t => ({ texte: t, tech: "", quand: "" }));
+    const resteAffiche = !!(m.resteAFaire && typeof m.resteAFaire === "object" && String(m.resteAFaire.texte || "").trim());
+    return liste.map(n => typeof n === "string" ? { texte: n, tech: "", quand: "" } : { texte: n && n.texte, tech: n && n.tech, quand: n && n.quand })
+      .map(n => ({ texte: String(n.texte == null ? "" : n.texte).trim(), tech: String(n.tech == null ? "" : n.tech), quand: String(n.quand == null ? "" : n.quand) }))
+      .filter(n => n.texte && !(resteAffiche && /^⏳\s*Reste à faire/i.test(n.texte)));
+  } catch (_) { return []; }
+}
+// « à 14 h 05 » aujourd'hui, « le 05/10 à 14 h 05 » sinon (heure de saisie d'une estimation)
+function btaQuand(iso) {
+  try {
+    const t = dateLisibleMs(iso); if (t === null) return "";
+    const d = new Date(t), h = d.getHours() + " h " + String(d.getMinutes()).padStart(2, "0");
+    return isoLocal(d) === isoLocal(new Date()) ? "à " + h : "le " + String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + " à " + h;
+  } catch (_) { return ""; }
+}
+// Un point d'extension pour les lots suivants : des boutons de plus dans la ligne dépliée (HTML ; échapper tout texte saisi)
+function btaActionsExtra(m) { return ""; }
+
+function btaLigneHTML(m) {
+  const id = String(m.id == null ? "" : m.id);
+  const ouvert = btaEtat.ouverts.has(id);
+  const st = STATUTS.find(s => s.id === m.statut) || null;
+  const live = btaEnLive(m);
+  const j = arriveeJours(m);
+  const reste = resteMinutesDe(m);
+  const pieces = Array.isArray(m.pieces) ? m.pieces.filter(p => p && typeof p === "object") : [];
+  const rdvOk = /^\d{4}-\d{2}-\d{2}$/.test(String(m.echeance || ""));
+  const pastilles = [
+    st ? `<span class="bta-statut" style="color:${st.couleur};background:${st.fond}">${echap(BTA_COURT[st.id] || st.label)}</span>` : `<span class="bta-statut">${echap(m.statut || "Sans statut")}</span>`,
+    live ? `<span class="bta-pastille bta-live">🔴 ${echap(liveNomsLive(m))}</span>` : "",
+    m.technicien && !live ? `<span class="bta-pastille">👷 ${echap(m.technicien)}</span>` : "",
+    j !== null ? `<span class="bta-pastille${typeof ARRIVEE_JOURS_VIEUX === "number" && j >= ARRIVEE_JOURS_VIEUX ? " vieux" : ""}">📥 ${j === 0 ? "arrivée aujourd'hui" : "arrivée il y a " + j + " j"}</span>` : "",
+    rdvOk ? `<span class="bta-pastille">📅 ${echap(formatCourt(m.echeance, m.heure))}</span>` : "",
+    reste ? `<span class="bta-pastille">⏳ ~${echap(dureeTxtLocale(reste))}</span>` : "",
+    pieces.length ? `<span class="bta-pastille">📦 ${pieces.filter(p => p.coche).length}/${pieces.length}</span>` : "",
+  ].filter(Boolean).join("");
+  return `<div class="bta-ligne${ouvert ? " ouvert" : ""}" data-id="${echap(id)}"${st ? ` style="--bta-c:${st.couleur}"` : ""}>
+    <div class="bta-tete" role="button" tabindex="0" aria-expanded="${ouvert ? "true" : "false"}">
+      <span class="bta-chev" aria-hidden="true">▸</span>
+      <div class="bta-tete-corps">
+        <div class="bta-l1">${m.numeroBT ? `<span class="bta-bt">${echap(m.numeroBT)}</span>` : `<span class="bta-bt sans">sans n°</span>`}<b class="bta-nom">${echap(nomMachine(m))}</b>${m.client ? `<span class="bta-client">${echap(m.client)}</span>` : ""}</div>
+        <div class="bta-l2">${pastilles}</div>
+      </div>
+    </div>${ouvert ? btaDetailHTML(m) : ""}
+  </div>`;
+}
+// Le détail n'est construit que lorsque la ligne est dépliée. Aucun montant, aucune facturation, aucune mention de paiement.
+function btaDetailHTML(m) {
+  const tiret = `<span class="bta-vide">—</span>`;
+  const v = (t) => { const s = t == null ? "" : String(t).trim(); return s ? echap(s) : tiret; };
+  const champ = (k, valeurHtml) => `<div class="bta-champ"><span class="bta-k">${k}</span> ${valeurHtml}</div>`;
+  const bloc = (titre, corps, large) => `<div class="bta-bloc${large ? " large" : ""}"><div class="bta-lbl">${titre}</div>${corps}</div>`;
+  const tel = String(m.tel == null ? "" : m.tel).trim();
+  const href = tel.replace(/[^\d+]/g, "");
+  const telHtml = !tel ? tiret : (href ? `<a class="bta-tel" href="tel:${echap(href)}">📞 ${echap(tel)}</a>` : echap(tel));
+  const kmh = [m.kilometrage ? String(m.kilometrage) + " km" : "", m.heuresMachine ? String(m.heuresMachine) + " h" : ""].filter(Boolean).join(" · ");
+  const ech = String(m.echeance || "");
+  const echTxt = /^\d{4}-\d{2}-\d{2}$/.test(ech) ? formatDate(ech) : ech;
+  const duree = Number(m.dureeEstimee) > 0 ? dureeTxtLocale(m.dureeEstimee) : "";
+  const pieces = Array.isArray(m.pieces) ? m.pieces.filter(p => p && typeof p === "object") : [];
+  const lignesPieces = pieces.map(p => `<li><span class="bta-qte">${v(p.qte || 1)} ×</span> <b>${v(p.nom || p.num)}</b>${p.num && p.nom ? ` <span class="bta-num">n° ${echap(p.num)}</span>` : ""}`
+    + `${p.coche ? ` <span class="bta-ok">✓ reçue</span>` : ` <span class="bta-non">pas encore reçue</span>`}${p.utilise ? ` <span class="bta-ut">🔧 utilisée</span>` : ""}</li>`).join("");
+  const rt = m.resteAFaire && typeof m.resteAFaire === "object" ? m.resteAFaire : null;
+  const resteTxt = rt && rt.texte ? String(rt.texte).trim() : "";
+  const resteMin = resteMinutesDe(m);
+  const quand = rt ? btaQuand(rt.quand) : "";
+  const notes = btaNotes(m);
+  const sessions = Array.isArray(m.chrono) ? m.chrono.filter(s => s && typeof s === "object") : [];
+  const punche = sessions.length ? dureeTxtLocale(Math.round(sessions.reduce((t, s) => t + liveDuree(s), 0) / 60000)) : null;
+  const actions = [];
+  if (droit("live") && m.statut !== "commande" && m.statut !== "assurance") actions.push(`<button type="button" class="bta-btn bta-btn-live" data-bta-act="live">🔴 Ouvrir en live</button>`);
+  actions.push(`<button type="button" class="bta-btn" data-bta-act="bon">🖨️ Bon imprimable</button>`);
+  if (estAdmin()) actions.push(`<button type="button" class="bta-btn" data-bta-act="edit">✏️ Modifier</button>`);
+  actions.push(btaActionsExtra(m));
+  return `<div class="bta-detail">
+    ${bloc("Client", `<div class="bta-champ"><b>${v(m.client)}</b></div>${champ("Téléphone", telHtml)}`)}
+    ${bloc("Machine", `<div class="bta-champ"><b>${echap(nomMachine(m))}</b></div>${champ("N° de série", v(m.reference))}${champ("Modèle", v(m.numModele))}${champ("Carton", v(m.numeroMachine))}${champ("Km / heures", v(kmh))}${champ("Emplacement", v(lieuTexte(m)))}${m.plaque ? champ("Plaque", v(m.plaque)) : ""}${m.descriptionMachine ? champ("Description", v(m.descriptionMachine)) : ""}`)}
+    ${bloc(m.statut === "avenir" ? "Rendez-vous" : "Échéance", `${champ("Date", echTxt ? v(echTxt + (m.heure ? " à " + m.heure : "")) : tiret)}${champ("Technicien", v(m.technicien))}`)}
+    ${bloc("Temps", `${champ("Temps punché", v(punche))}${champ("Durée estimée", v(duree))}`)}
+    ${bloc("Travaux demandés", `<div class="bta-texte">${v(m.travaux)}</div>`, true)}
+    ${resteTxt || resteMin ? bloc("⏳ Reste à faire", `<div class="bta-texte">${resteTxt ? echap(resteTxt) : tiret}</div>${rt && rt.tech ? champ("Noté par", echap(rt.tech)) : ""}${resteMin ? champ("Temps restant", `environ ${echap(dureeTxtLocale(resteMin))}${quand ? ` (estimation saisie ${echap(quand)})` : ""}`) : ""}`, true) : ""}
+    ${bloc(`Pièces${pieces.length ? " (" + pieces.filter(p => p.coche).length + "/" + pieces.length + " reçues)" : ""}`, pieces.length ? `<ul class="bta-pieces">${lignesPieces}</ul>` : `<div class="bta-texte">${tiret}</div>`, true)}
+    ${bloc("Notes d'atelier", notes.length ? `<ul class="bta-notes">${notes.map(n => `<li>${echap(n.texte)}${n.tech || n.quand ? ` <span class="bta-meta">${echap([n.tech, n.quand ? liveDateHeure(n.quand) : ""].filter(Boolean).join(" · "))}</span>` : ""}</li>`).join("")}</ul>` : `<div class="bta-texte">${tiret}</div>`, true)}
+    <div class="bta-actions">${actions.join("")}</div>
+  </div>`;
+}
+function btaLigneSure(m) {   // un bon aux données bizarres ne doit jamais vider toute la liste
+  try { return btaLigneHTML(m); }
+  catch (e) { return `<div class="bta-ligne" data-id="${echap(m && m.id)}"><div class="bta-tete" role="button" tabindex="0" aria-expanded="false"><span class="bta-chev" aria-hidden="true">▸</span><div class="bta-tete-corps"><div class="bta-l1"><span class="bta-bt">${echap(m && m.numeroBT || "—")}</span><b class="bta-nom">fiche illisible</b></div></div></div></div>`; }
+}
+const BTA_PASTILLES = [["tous", "Tous"], ["live", "🔴 En live"], ["reparation", "En réparation"], ["attente", "Attente pièce"], ["sansrdv", "Sans RDV"], ["avenir", "À venir"],
+                       ["afacturer", "Prêt à facturer"], ["prete", "Facturé"], ["assurance", "Assurance"], ["commande", "Commande"], ["autre", "Autre"]];
+function btaRendre() {
+  try {
+    const page = document.getElementById("bta-page"), liste = document.getElementById("bta-liste"), chips = document.getElementById("bta-chips"), resume = document.getElementById("bta-resume");
+    if (!page || !liste || !chips || !resume) return;
+    btaBrancher();
+    const haut = page.scrollTop;                                              // la synchro d'un autre poste redessine : on garde la position
+    const act = document.activeElement;
+    const ligneFocus = act && act !== document.body && liste.contains(act) && act.closest ? act.closest("[data-id]") : null;
+    const idFocus = ligneFocus ? ligneFocus.dataset.id : null;
+    const C = btaCalcul();
+    const vivants = new Set(btaActifs().map(m => String(m.id == null ? "" : m.id)));
+    btaEtat.ouverts.forEach(id => { if (!vivants.has(id)) btaEtat.ouverts.delete(id); });   // archivé ou supprimé ailleurs
+    const filtre = btaEtat.filtre !== "tous" || btaEtat.q.trim() !== "";
+    resume.innerHTML = `<span>${filtre ? `<b>${C.visibles.length}</b> bon${C.visibles.length > 1 ? "s" : ""} sur ${C.total}` : `<b>${C.total}</b> bon${C.total > 1 ? "s" : ""} actif${C.total > 1 ? "s" : ""}`}</span>`
+      + `<span class="bta-aide">Touche une ligne pour la déplier — le live ne s'ouvre que par le bouton 🔴.</span>`
+      + (filtre ? `<button type="button" class="btn-secondaire bta-effacer" onclick="btaEffacer()">✕ Effacer</button>` : "");
+    chips.innerHTML = BTA_PASTILLES.filter(([f]) => f !== "autre" || C.compte.autre > 0 || btaEtat.filtre === "autre").map(([f, lib]) => {
+      const n = C.compte[f] || 0;
+      return `<button type="button" class="bta-chip${btaEtat.filtre === f ? " actif" : ""}${n === 0 ? " zero" : ""}" data-f="${f}" aria-pressed="${btaEtat.filtre === f ? "true" : "false"}" onclick="btaFiltre('${f}')">${lib} <span class="n">${n}</span></button>`;
+    }).join("");
+    const montres = C.visibles.slice(0, btaEtat.limite);
+    liste.innerHTML = (montres.length ? montres.map(btaLigneSure).join("") : `<div class="bta-vide-liste">${C.total ? "Aucun bon ne correspond à ta recherche." : "Aucun bon actif pour l'instant."}</div>`)
+      + (C.visibles.length > montres.length ? `<button type="button" class="btn-secondaire bta-plus" onclick="btaPlus()">Afficher les ${C.visibles.length - montres.length} autres</button>` : "");
+    page.scrollTop = haut;
+    if (idFocus !== null) { const l = [...liste.querySelectorAll("[data-id]")].find(x => x.dataset.id === idFocus); const t = l && l.querySelector(".bta-tete"); if (t) { try { t.focus({ preventScroll: true }); } catch (_) {} } }
+  } catch (e) { console.error("v178 BTA : rendu", e); }
+}
+// UN seul écouteur pour toute la liste (délégation) : le clic sur une ligne ne fait QUE déplier — jamais ouvrirLive, jamais sauvegarder.
+function btaBrancher() {
+  const z = document.getElementById("bta-liste");
+  if (!z || z.dataset.btaBranche) return;
+  z.dataset.btaBranche = "1";
+  z.addEventListener("click", btaClic);
+}
+function btaClic(e) {
+  try {
+    const cible = e.target;
+    if (!cible || !cible.closest) return;
+    const ligne = cible.closest("[data-id]");
+    if (!ligne) return;
+    const bouton = cible.closest("[data-bta-act]");
+    if (bouton) { btaAction(bouton.dataset.btaAct, ligne.dataset.id); return; }
+    if (cible.closest(".bta-detail")) return;                                  // lien tel:, texte à copier : on ne replie pas
+    btaBasculer(ligne.dataset.id);
+  } catch (err) { console.error("v178 BTA : clic", err); }
+}
+function btaTouche(e) {   // clavier : Entrée ou Espace sur la ligne (role=button)
+  try {
+    if ((e.key === "Enter" || e.key === " ") && e.target && e.target.classList && e.target.classList.contains("bta-tete")) {
+      e.preventDefault();
+      const ligne = e.target.closest("[data-id]"); if (ligne) btaBasculer(ligne.dataset.id);
+    }
+  } catch (_) {}
+}
+function btaBasculer(id) {
+  const liste = document.getElementById("bta-liste");
+  if (btaEtat.ouverts.has(id)) btaEtat.ouverts.delete(id); else btaEtat.ouverts.add(id);
+  const m = (Array.isArray(machines) ? machines : []).find(x => x && String(x.id) === id);
+  const ligne = liste ? [...liste.querySelectorAll("[data-id]")].find(x => x.dataset.id === id) : null;
+  if (!m || !ligne) { btaRendre(); return; }
+  const avait = !!(document.activeElement && ligne.contains(document.activeElement));
+  ligne.outerHTML = btaLigneSure(m);                                           // seule cette ligne est redessinée : le défilement ne bouge pas
+  if (avait) { const l = [...liste.querySelectorAll("[data-id]")].find(x => x.dataset.id === id); const t = l && l.querySelector(".bta-tete"); if (t) { try { t.focus({ preventScroll: true }); } catch (_) {} } }
+}
+function btaAction(act, id) {
+  const m = (Array.isArray(machines) ? machines : []).find(x => x && String(x.id) === id);
+  if (!m) { toastAviser("Ce bon n'existe plus.", false); btaRendre(); return; }
+  if (act === "live") btaOuvrirLive(m);
+  else if (act === "bon") bonDeTravail(m.id);                                  // la fenêtre imprimée peut modifier le bon : ce n'est pas une lecture seule
+  else if (act === "edit") { if (estAdmin()) ouvrirEdition(m.id); }
+}
+// Ouvrir en live démarre MON punch et remet le bon en « Réparation en cours » (liveConnecterFinal) : on demande avant pour un bon
+// déjà prêt à facturer, facturé, ou un rendez-vous dont la machine n'est pas arrivée.
+function btaOuvrirLive(m) {
+  if (!droit("live") || m.statut === "commande" || m.statut === "assurance") return;
+  const piege = m.statut === "afacturer" || m.statut === "prete" || (m.statut === "avenir" && !m.machineArrivee);
+  if (piege && !confirm("Ouvrir en live remet le bon " + (m.numeroBT || "") + " en « Réparation en cours » et démarre ton punch. Continuer ?")) return;
+  ouvrirLive(m.id);
+}
+function btaRecherche(v) { btaEtat.q = String(v == null ? "" : v); btaEtat.limite = BTA_PAGE; btaRendre(); }
+function btaFiltre(f) { btaEtat.filtre = f; btaEtat.limite = BTA_PAGE; btaRendre(); }
+function btaTri(t) { btaEtat.tri = t === "bt" ? "bt" : "statut"; btaEtat.limite = BTA_PAGE; btaPrefsEcrire(); btaRendre(); }
+function btaPlus() { btaEtat.limite = Infinity; btaRendre(); }
+function btaEffacer() {
+  btaEtat.filtre = "tous"; btaEtat.q = ""; btaEtat.limite = BTA_PAGE;
+  const ch = document.getElementById("bta-recherche"); if (ch) ch.value = "";
+  btaRendre();
+}
+function btaPrefsLire() { try { const p = JSON.parse(localStorage.getItem(BTA_CLE_PREFS) || "null"); if (p && p.tri === "bt") return "bt"; } catch (_) {} return "statut"; }
+function btaPrefsEcrire() { try { localStorage.setItem(BTA_CLE_PREFS, JSON.stringify({ tri: btaEtat.tri })); } catch (_) {} }
+// Ouverture : le droit « bonsActifs » et le verrou de punch sont vérifiés par garderSections (qui enveloppe cette fonction)
+function ouvrirBonsActifs() {
+  try { fermerMenu(); } catch (_) {}
+  btaEtat.filtre = "tous"; btaEtat.q = ""; btaEtat.limite = BTA_PAGE;           // jamais mémorisés : on repart sur « Tous »
+  btaEtat.tri = btaPrefsLire();
+  const ch = document.getElementById("bta-recherche"); if (ch) ch.value = "";   // et jamais de focus automatique (clavier d'iPad en paysage)
+  const tri = document.getElementById("bta-tri"); if (tri) tri.value = btaEtat.tri;
+  const page = document.getElementById("bta-page");
+  page.classList.add("ouvert"); page.scrollTop = 0;
+  btaRendre();
+  if (btaEtat.timer) clearInterval(btaEtat.timer);
+  btaEtat.timer = setInterval(() => { if (btaOuvert()) btaRendre(); else btaArreter(); }, 60000);   // les durées « en direct » ne bougent sinon qu'au prochain rendu
+}
+function btaArreter() { if (btaEtat.timer) { clearInterval(btaEtat.timer); btaEtat.timer = null; } }
+function fermerBonsActifs() {
+  const p = document.getElementById("bta-page"); if (p) p.classList.remove("ouvert");
+  btaArreter();
+}
+function btaRafraichir() { if (btaOuvert()) btaRendre(); }                    // appelé par rafraichirVues (synchro d'un autre poste, punch…)
+// Remise à zéro complète (déconnexion : le technicien suivant ne doit pas voir la liste du précédent)
+function btaVider() {
+  btaEtat.filtre = "tous"; btaEtat.q = ""; btaEtat.limite = BTA_PAGE; btaEtat.ouverts.clear();
+  const ch = document.getElementById("bta-recherche"); if (ch) ch.value = "";
+  const l = document.getElementById("bta-liste"); if (l) l.innerHTML = "";
+}
 
 // ═══════════════════════════════════════════════════════════
 // v74 — COMPTES ET DROITS (bloc 2 + 3)
@@ -22165,6 +22470,7 @@ const SECTIONS = [
   { id: "commandes",  label: "Pièces à commander",     ico: "📦", ouvrir: "ouvrirCommandes" },
   { id: "calendrier", label: "Calendrier",             ico: "📅", ouvrir: "ouvrirCalendrier" },
   { id: "ordre",      label: "Ordre de travail",       ico: "🔧", ouvrir: "ouvrirOrdre" },       // v164
+  { id: "bonsActifs", label: "Bons de travail actifs", ico: "📑", ouvrir: "ouvrirBonsActifs" },   // v178 BTA
   { id: "soumissions",label: "Soumissions",            ico: "🧾", ouvrir: "ouvrirSoumissions" },
   { id: "clients",    label: "Clients",                ico: "👥", ouvrir: "ouvrirClients" },
   { id: "inventaire", label: "Inventaire",             ico: "🗃️", ouvrir: "ouvrirInventaire" },
@@ -22194,17 +22500,17 @@ const SOUS_DROITS = [
 ];
 const DROITS_DEFAUT = {
   admin:      Object.fromEntries([...SECTIONS, ...SOUS_DROITS].map(s => [s.id, true])),
-  technicien: { tableau: false, nouvelle: false, scanBT: true, live: true, punch: true, commandes: true, calendrier: true, ordre: true,
+  technicien: { bonsActifs: true, tableau: false, nouvelle: false, scanBT: true, live: true, punch: true, commandes: true, calendrier: true, ordre: true,
                 soumissions: false, clients: false, inventaire: false, archives: false, sms: false, ecranAtelier: true, admin: false, messages: true, taches: true, marketplace: false, positions: false, activites: false, checklists: false, rappels: false, marketing: false, demandes: false, communications: false,
                 voirCouts: false, gestion: false },
   // v90 — homme à tout faire sur tablette : ses tâches, le punch et les messages, rien d'autre
-  tache:      { tableau: false, nouvelle: false, scanBT: false, live: false, punch: true, commandes: false, calendrier: false, ordre: false,
+  tache:      { bonsActifs: false, tableau: false, nouvelle: false, scanBT: false, live: false, punch: true, commandes: false, calendrier: false, ordre: false,
                 soumissions: false, clients: false, inventaire: false, archives: false, sms: false, ecranAtelier: false, admin: false, messages: true, taches: true, marketplace: true, positions: false, activites: false, checklists: false, rappels: false, marketing: false, demandes: false, communications: false,
                 voirCouts: false, gestion: false },
   // v176 — Réception / service à la clientèle : la même maison que l'administration (tableau de bord, téléphone,
   // rendez-vous, pièces, soumissions, clients) ET l'atelier (scanner un bon, travail live, punch) parce qu'il travaille
   // aussi sur des machines. Jamais : dossiers employés, rentabilité, feuille de temps, GPS, marketing, coûts, gestion.
-  reception:  { tableau: true, nouvelle: true, scanBT: true, live: true, punch: true, commandes: true, calendrier: true, ordre: true,
+  reception:  { bonsActifs: true, tableau: true, nouvelle: true, scanBT: true, live: true, punch: true, commandes: true, calendrier: true, ordre: true,
                 soumissions: true, clients: true, inventaire: true, archives: true, sms: true, ecranAtelier: true, admin: false, messages: true, taches: true, marketplace: false, positions: false, activites: false, checklists: false, rappels: true, marketing: false, demandes: true, communications: true,
                 voirCouts: false, gestion: false },
 };
@@ -22758,6 +23064,7 @@ async function deconnecter() {
   document.getElementById("ecran-tech").classList.remove("ouvert");
   if (techTimer) { clearInterval(techTimer); techTimer = null; }
   //@@v178-A12 deconnecter
+  try { fermerBonsActifs(); btaVider(); } catch (_) {}   // v178 BTA : fermer la page, vider recherche / filtre / lignes dépliées
   appliquerDroits();
   ouvrirConnexion();
 }
@@ -22826,7 +23133,7 @@ function rendreEcranTech() {
   const tuiles = SECTIONS.filter(s => s.id !== "live" && droitDe(e, s.id)).map(s =>
     `<button type="button" class="tech-tuile${s.id === "scanBT" || (roleTache && s.id === "taches") ? " principale" : ""}${s.id === "punch" ? " punch" : ""}" onclick="techOuvrir('${s.id}')">
        <span class="ico">${s.ico}${s.id === "messages" && nonLus ? ` <span class="chat-badge visible">${nonLus}</span>` : ""}${s.id === "taches" && nbTaches ? ` <span class="chat-badge visible">${nbTaches}</span>` : ""}</span><span class="lbl">${echap(s.label)}</span>
-       <span class="sous">${s.id === "scanBT" ? "Vise le code du bon pour entrer en travail live" : s.id === "tableau" ? "Vue complète de l'atelier" : s.id === "taches" ? (nbTaches ? nbTaches + " à faire" : "Rien en attente") : s.id === "punch" ? "Arrivée, pause, départ" : s.id === "marketplace" ? marketResume() : ""}</span></button>`);
+       <span class="sous">${s.id === "scanBT" ? "Vise le code du bon pour entrer en travail live" : s.id === "tableau" ? "Vue complète de l'atelier" : s.id === "taches" ? (nbTaches ? nbTaches + " à faire" : "Rien en attente") : s.id === "punch" ? "Arrivée, pause, départ" : s.id === "bonsActifs" ? "Tous les bons, sans ouvrir le live" : s.id === "marketplace" ? marketResume() : ""}</span></button>`);
   // v170 : brancher la TV du lift avec son compte (un technicien, pas l'administration)
   if (roleDe(e) === "technicien" && droitDe(e, "live"))
     tuiles.push(`<button type="button" class="tech-tuile" id="tech-tuile-tv" onclick="tvBrancherOuvrir()"><span class="ico">📺</span><span class="lbl">Brancher une TV</span><span class="sous">Entre le code affiché sur la TV : elle suivra ton punch</span></button>`);
@@ -24315,7 +24622,7 @@ function refusSection(section) {
 }
 // Chaque fonction d'ouverture vérifie le droit de l'employé connecté.
 (function garderSections() {
-  const garde = { ouvrirCalendrier: "calendrier", ouvrirSoumissions: "soumissions", ouvrirClients: "clients", ouvrirInventaire: "inventaire",
+  const garde = { ouvrirBonsActifs: "bonsActifs", ouvrirCalendrier: "calendrier", ouvrirSoumissions: "soumissions", ouvrirClients: "clients", ouvrirInventaire: "inventaire",
                   ouvrirCommandes: "commandes", ouvrirArchives: "archives", ouvrirHistoriqueSMS: "sms", ouvrirPunch: "punch",
                   ouvrirEcranAtelier: "ecranAtelier", ouvrirScanBT: "scanBT", ouvrirLive: "live", ouvrirFormulaire: "nouvelle", ouvrirChat: "messages", ouvrirTaches: "taches", ouvrirMarketplace: "marketplace", ouvrirPositions: "positions", ouvrirActivites: "activites", ouvrirChecklists: "checklists" };
   Object.keys(garde).forEach(nom => {
@@ -30628,7 +30935,73 @@ setInterval(() => {
 <script id="v178-CAL6"></script>
 <style id="v178-SON"></style>
 <script id="v178-SON"></script>
-<style id="v178-BTA"></style>
+<style id="v178-BTA">
+/* ═══ v178 BTA — Bons de travail actifs (page de consultation : entête fixe, pastilles, lignes dépliables) ═══ */
+.bta-entete { align-items: center; }
+.bta-outils { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; flex: 1 1 360px; min-width: 0; }
+.bta-recherche { flex: 1 1 220px; min-width: 0; max-width: 460px; box-sizing: border-box; -webkit-appearance: none; appearance: none; min-height: 44px; padding: 8px 12px; font: inherit; font-size: 16px; color: var(--encre); background: var(--surface); border: 1px solid var(--bordure); border-radius: 8px; }
+.bta-tri { flex: 0 1 auto; min-width: 0; max-width: 100%; box-sizing: border-box; min-height: 44px; padding: 8px 10px; font: inherit; font-size: 16px; color: var(--encre); background: var(--surface); border: 1px solid var(--bordure); border-radius: 8px; }
+.bta-recherche:focus, .bta-tri:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.bta-corps { width: 100%; max-width: 1100px; margin: 0 auto; box-sizing: border-box; }
+.bta-resume { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-height: 28px; font-size: 14px; color: var(--encre-2); }
+.bta-resume b { color: var(--encre); }
+.bta-aide { color: var(--sourdine); font-size: 13px; }
+.bta-effacer { min-height: 44px; padding: 6px 14px; }
+.bta-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+.bta-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 6px 12px; font: inherit; font-size: 14px; font-weight: 700; color: var(--encre); background: var(--surface); border: 1.5px solid var(--bordure); border-radius: 22px; cursor: pointer; }
+.bta-chip .n { min-width: 22px; padding: 1px 7px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; background: var(--surface-3); border-radius: 12px; }
+.bta-chip.actif { color: var(--accent-texte); background: var(--accent); border-color: var(--accent); }
+.bta-chip.actif .n { background: rgba(0,0,0,.18); }
+.bta-chip.zero { opacity: .5; }
+.bta-liste { min-width: 0; }
+.bta-ligne { min-width: 0; margin-bottom: 8px; overflow: hidden; background: var(--surface); border: 1px solid var(--bordure); border-left: 5px solid var(--bta-c, var(--bordure)); border-radius: 10px; }
+.bta-ligne.ouvert { box-shadow: var(--ombre-moy); }
+.bta-tete { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; padding: 10px 12px 10px 8px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.bta-tete:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.bta-chev { flex: none; width: 18px; margin-top: 1px; text-align: center; color: var(--sourdine); transition: transform .15s; }
+.bta-ligne.ouvert .bta-chev { transform: rotate(90deg); }
+.bta-tete-corps { flex: 1 1 auto; min-width: 0; }
+.bta-l1 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; overflow-wrap: anywhere; }
+.bta-bt { font-weight: 800; font-variant-numeric: tabular-nums; color: var(--accent-fonce); }
+.bta-bt.sans { color: var(--sourdine); font-weight: 600; }
+.bta-nom { font-size: 15px; }
+.bta-client { color: var(--encre-2); font-size: 14px; }
+.bta-l2 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 5px; min-width: 0; }
+.bta-statut, .bta-pastille { display: inline-block; max-width: 100%; padding: 2px 8px; font-size: 12px; font-weight: 700; line-height: 1.5; color: var(--encre-2); background: var(--surface-2); border-radius: 12px; overflow-wrap: anywhere; }
+.bta-statut { border: 1px solid currentColor; }
+.bta-pastille.bta-live { color: var(--c-repar); background: var(--f-repar); }
+.bta-pastille.vieux { color: var(--danger); background: var(--f-danger); }
+.bta-detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px 20px; padding: 12px 14px 14px 18px; background: var(--surface-2); border-top: 1px solid var(--bordure); cursor: default; }
+.bta-bloc { min-width: 0; }
+.bta-bloc.large, .bta-actions { grid-column: 1 / -1; }
+.bta-lbl { margin-bottom: 4px; font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--sourdine); }
+.bta-champ { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.bta-k { color: var(--sourdine); font-size: 13px; }
+.bta-vide { color: var(--sourdine); }
+.bta-texte { font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bta-tel { display: inline-flex; align-items: center; min-height: 44px; color: var(--lien); font-weight: 700; text-decoration: none; }
+.bta-pieces, .bta-notes { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.bta-pieces li, .bta-notes li { margin-bottom: 3px; }
+.bta-qte { font-weight: 700; font-variant-numeric: tabular-nums; }
+.bta-num, .bta-meta { color: var(--sourdine); font-size: 12.5px; }
+.bta-ok { color: var(--c-prete); font-weight: 700; font-size: 13px; }
+.bta-non { color: var(--c-attente); font-size: 13px; }
+.bta-ut { color: var(--c-repar); font-weight: 700; font-size: 13px; }
+.bta-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.bta-btn { min-height: 44px; padding: 8px 16px; font: inherit; font-size: 14px; font-weight: 700; color: var(--encre-2); background: var(--surface); border: 1.5px solid var(--bordure); border-radius: 9px; cursor: pointer; }
+.bta-btn:hover { background: var(--fond); }
+.bta-btn-live { color: var(--c-repar); border-color: var(--c-repar); background: var(--f-repar); }
+.bta-vide-liste { padding: 28px 12px; text-align: center; color: var(--sourdine); }
+.bta-plus { display: block; width: 100%; min-height: 44px; margin-top: 4px; }
+@media (max-width: 820px) {
+  .cal-entete.bta-entete { gap: 8px; padding: 8px 12px; }
+  .bta-outils { flex: 1 1 100%; justify-content: stretch; gap: 8px; }
+  .bta-recherche { flex: 1 1 100%; max-width: none; }
+  .bta-tri { flex: 1 1 100%; }
+  .cal-corps.bta-corps { overflow: visible; padding: 10px 12px 40px; }   /* le cadre qui défile reste la page (le mobile donne sinon overflow-x:auto à .cal-corps : un second cadre de défilement) */
+  .bta-aide { display: none; }
+}
+</style>
 <script id="v178-BTA"></script>
 </body>
 </html>
