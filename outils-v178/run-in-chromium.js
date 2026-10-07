@@ -48,7 +48,7 @@ for (const f of fs.readdirSync(path.dirname(path.resolve(testFile)))) if (/\.js$
   await page.goto(ORIGIN + "/__runner");
   await page.evaluate(({ src, files, libs, argv }) => {
     window.__pending = []; window.__frames = [];
-    window.__beforeParse = (win) => { const i = window.__frames.find(x => x.frame.contentWindow === win); if (i && i.opts.beforeParse) i.opts.beforeParse(win); };
+    window.__beforeParse = (win) => { try { win.__NAVIGATEUR = true; } catch (_) {} const i = window.__frames.find(x => x.frame.contentWindow === win); if (i && i.opts.beforeParse) i.opts.beforeParse(win); };   // v178 : __NAVIGATEUR, pour les styles calculés de test-v176/v177
     class JSDOM {
       constructor(html, opts = {}) {
         this.opts = opts;

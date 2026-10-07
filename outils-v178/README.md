@@ -18,11 +18,9 @@ lancés tels quels dans Chromium (Playwright, déjà installé dans l'environnem
 Base de référence mesurée sur la **v177** (7 oct. 2026, Chromium 141, `MTR_FAKE_NOW` = mercredi) : **804/804** sur les
 19 fichiers v159 à v175 (v159 63, v159b 8, v160 16, v161 42, v162 36, v163 34, v164 63, v165 26, v166 49, v167 72,
 v168 56, v168b 35, v169 54, v170 77, v172 52, v172b 24, v173 14, v174 36, v175 47 — mêmes chiffres que sur la v175),
-`test-v177.js` **47/47** (le changelog dit 48 : une assertion de moins dans cet exécuteur), `test-v176.js` **78/82** :
-4 assertions sur des styles calculés (`display: none`) échouent dans cet exécuteur alors que le patron les a vues
-passer dans son navigateur — « pied du tableau caché », « Jason : poubelle et pied visibles », « Coût $ caché / Vente $
-visible », « bouton Supprimer de la fiche caché ». **Ces 4 échecs sont la référence** : un lot qui en ajoute un 5e a
-cassé quelque chose. `edge/test-sms-entrant-v172.html` 33/33 ; `smoke.js` 0 erreur. `edge/test-quickbooks-v160.mjs`
+`test-v176.js` **82/82** et `test-v177.js` **48/48** (l'exécuteur pose `win.__NAVIGATEUR = true` pour que ces deux
+tests vérifient les styles calculés comme dans un vrai navigateur ; sans cela : 78/82 et 47/47). **Base complète =
+934 assertions.** `edge/test-sms-entrant-v172.html` 33/33 ; `smoke.js` 0 erreur. `edge/test-quickbooks-v160.mjs`
 importe `esbuild`, absent ici : non lancé (57/57 sur la v175 avec un transpileur TypeScript de remplacement).
 `test-v171.js` est sauté : il exige `bt089/` et `bt089.zip`, absents du dépôt.
 

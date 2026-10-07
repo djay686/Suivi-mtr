@@ -5409,6 +5409,9 @@ function rafraichirVues() {
     if (ea && ea.classList.contains("ouvert") && typeof rendreEcranAtelier === "function") rendreEcranAtelier();
   } catch (_) {}
   try { if (typeof ordreRafraichir === "function") ordreRafraichir(); } catch (_) {}   // v164 : ordre de travail
+  //@@v178-A4 rafraichir
+  //@@v178-A9 rafraichir
+  //@@v178-A12 rafraichir
 }
 
 // ═══ v168 — LA LIGNE 1 N'EST PLUS ÉCRASÉE À L'AVEUGLE ══════════════
@@ -5432,6 +5435,7 @@ function fusionnerAjoutsServeur(serveur) {
   if (ajouts.length) machines = ajouts.concat(machines);   // en tête, là où le serveur les place
   return ajouts;
 }
+//@@v178-FAC purge
 // Supprimer un bon (toutes les suppressions passent ici)
 function retirerMachine(id) {
   const m = machines.find(x => x && x.id === id);
@@ -7189,6 +7193,7 @@ function rdvOccupationJour(iso) {
     .sort((a,b) => a[0] - b[0]);
 }
 
+//@@v178-S0a capacite
 function genererSuggestionsRdv() {
   const dureeMin = Number(document.getElementById("rdv-duree").value);
   const dureeH = dureeMin / 60;
@@ -11000,6 +11005,7 @@ function joursDepuis(iso) {
   if (isNaN(d)) return null;
   return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
 }
+//@@v178-S0b helpers
 // Toutes les pièces requises sont-elles cochées ? (vrai aussi s'il n'y a aucune pièce)
 function piecesToutesVerifiees(m) {
   if (!m.pieces || m.pieces.length === 0) return true;
@@ -20343,6 +20349,7 @@ function liveAfficherPage() {
   liveTimer = setInterval(liveTic, 1000);
   liveTic();
 }
+//@@v178-A3 liveVoir
 function fermerLive() {
   document.getElementById("live-page").classList.remove("ouvert");
   try { if (document.getElementById("ecran-tech").classList.contains("ouvert")) rendreEcranTech(); } catch (_) {}
@@ -20593,6 +20600,7 @@ function liveSupprimerNote(i) {
   liveMajNotesTech(m);
   sauvegarder();
 }
+//@@v178-A3 notes
 
 // ── Commande de pièces au bureau ────────────────────────────
 function liveCommander() {
@@ -21974,6 +21982,7 @@ function enregistrerEtatArrivee(id, e) {
   etatArriveeAppliquer(m, e);
   sauvegarder();
 }
+//@@v178-A12 bloc
 
 // ═══════════════════════════════════════════════════════════
 // v74 — COMPTES ET DROITS (bloc 2 + 3)
@@ -22567,6 +22576,7 @@ async function mdpEnregistrer() {
   } catch (err) { msg.textContent = "Impossible : " + (err.message || "erreur"); }
 }
 async function deconnecter() {
+  //@@v178-SON deconnecter
   await presenceEffacer();
   if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
   if (AUTH_SUPABASE && sb) await authSortir();   // v162 : cet appareil seulement (avant : le compte sautait sur TOUS les appareils)
@@ -22584,6 +22594,7 @@ async function deconnecter() {
   if (typeof soumissions !== "undefined") soumissions = [];
   document.getElementById("ecran-tech").classList.remove("ouvert");
   if (techTimer) { clearInterval(techTimer); techTimer = null; }
+  //@@v178-A12 deconnecter
   appliquerDroits();
   ouvrirConnexion();
 }
@@ -24231,6 +24242,7 @@ async function demarrerDonnees() {
   if (donneesChargees) return;
   donneesChargees = true;
   await charger();                // récupère depuis Supabase puis abonne au temps réel
+  //@@v178-FAC demarrerDonnees
   afficher();                     // ré-affiche avec les données réelles
   migrerComptes();                // noms de famille et identifiants des dossiers
   try { nettoyerPunchsOublies(); } catch (_) {}
@@ -24242,6 +24254,7 @@ async function demarrerDonnees() {
   tachesMajBadge();               // v90 : pastille « Tâches » du menu
   marketMajBadge();               // v92 : pastille « Marketplace » (articles en vente)
   invMajDatalist();               // autocomplétion des n° de pièce partout
+  //@@v178-TAB demarrerDonnees
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -26833,6 +26846,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     }
     return out;
   }
+  //@@v178-A9 apres-demJours
   // Le calendrier appelle ça pour hachurer
   window.__demCreneauxJour = (iso) => retenus.filter(r => String(r.iso).slice(0, 10) === iso)
     .map(r => ({ heure: r.heure, duree: r.duree_min || 60, client: r.client || "", min: r.minutes_restantes }));
@@ -28269,6 +28283,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
         n.onclick = () => { try { window.focus(); } catch (_) {} n.close(); };
       }
     } catch (_) {}
+    //@@v178-A11 proposerNote
   }
   if (bcAppel) bcAppel.onmessage = (e) => {
     if (window.__appelHandoff && window.__appelHandoff.transmis) return;   // onglet Linkus déjà transmis : il ne répond plus
@@ -30431,5 +30446,26 @@ setInterval(() => {
   } catch (_) {}
 }, 60000);
 </script>
+<!-- v178 : un bloc <style> et un bloc <script> par lot (CSS et JS neufs de chaque lot ; vides au socle) -->
+<style id="v178-COM"></style>
+<script id="v178-COM"></script>
+<style id="v178-PCS"></style>
+<script id="v178-PCS"></script>
+<style id="v178-FAC"></style>
+<script id="v178-FAC"></script>
+<style id="v178-TAB"></style>
+<script id="v178-TAB"></script>
+<style id="v178-CALA"></style>
+<script id="v178-CALA"></script>
+<style id="v178-CALB"></style>
+<script id="v178-CALB"></script>
+<style id="v178-CAL9"></style>
+<script id="v178-CAL9"></script>
+<style id="v178-CAL6"></style>
+<script id="v178-CAL6"></script>
+<style id="v178-SON"></style>
+<script id="v178-SON"></script>
+<style id="v178-BTA"></style>
+<script id="v178-BTA"></script>
 </body>
 </html>
