@@ -5448,6 +5448,7 @@ function rafraichirVues() {
   //@@v178-A4 rafraichir
   try { if (factBtId) factNotesRendre(); } catch (_) {}   // v178-FAC : la liste des notes d'atelier suit (temps réel, autre poste)
   //@@v178-A9 rafraichir
+  try { if (typeof window.__demCalRafraichir === "function") window.__demCalRafraichir(); } catch (_) {}   // v178-CAL9 : le calendrier du sélecteur de créneaux suit les bons
   //@@v178-A12 rafraichir
   try { if (typeof btaRafraichir === "function") btaRafraichir(); } catch (_) {}   // v178 BTA : Bons de travail actifs
 }
@@ -27665,13 +27666,13 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
             if (typeof toastAviser === "function") toastAviser(`📨 Nouvelle demande — ${d.nom || "client"}${d.type_machine ? " · " + d.type_machine : ""}`, true);
             demClignoter();
           }
-          if (document.getElementById("dem-voile").classList.contains("ouvert")) demRendre();
+          if (document.getElementById("dem-voile").classList.contains("ouvert")) demRafraichir();   // v178-CAL9 : sans fermer le sélecteur de créneaux
           if (typeof calRendre === "function" && document.getElementById("section-calendrier")) { try { calRendre(); } catch (_) {} }
         })
         .on("postgres_changes", { event: "*", schema: "public", table: "creneaux_reserves" }, async () => {
           const { data } = await s.from("creneaux_actifs").select("*"); retenus = data || [];
           if (typeof calRendre === "function") { try { calRendre(); } catch (_) {} }
-          if (document.getElementById("dem-voile").classList.contains("ouvert")) demRendre();
+          if (document.getElementById("dem-voile").classList.contains("ouvert")) demRafraichir();   // v178-CAL9
         })
         .subscribe();
     } catch (_) {}
@@ -27700,6 +27701,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const { data } = await s.from("creneaux_actifs").select("*");
     const avant = retenus.length; retenus = data || [];
     if (avant !== retenus.length && typeof calRendre === "function") { try { calRendre(); } catch (_) {} }
+    try { if (typeof window.__demCalRafraichir === "function") window.__demCalRafraichir(); } catch (_) {}   // v178-CAL9 : le calendrier du sélecteur de créneaux voit les retenues expirer
   }, 120000);
 
   // ── moteur de disponibilités ──────────────────────────────────────────
@@ -27781,6 +27783,193 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     return out;
   }
   //@@v178-A9 apres-demJours
+  // ═══ v178-CAL9 : charge d'ouvrage et mini-calendrier de la semaine (fiche d'une demande > 📅 Proposer des créneaux) ═══
+  // Lecture seule : tout se calcule ici, rien n'est écrit. Les plages libres viennent de demHeures (propriété CALA).
+  const CHARGE_N2 = 60, CHARGE_N3 = 85;          // v178 : % de charge où la journée passe à l'orange (n2), puis au rouge (n3)
+  const CLE_DEM_CAL = "mtr-dem-cal-v1";          // préférence « calendrier affiché » (par appareil)
+  let demPickerSig = "", demCalPref;             // dernier HTML du sélecteur ; demCalPref : undefined = pas encore lue, null = aucune
+  const demCalDonnees = {};                      // iso -> { cellules, ouvre, ferme } du dernier dessin, relu au clic
+  const hDec = (x) => (Math.round(x * 10) / 10).toString().replace(".", ",") + " h";
+  // Charge d'un jour : capacité = heures des techniciens moins le dîner de chacun ; réservé = bons non archivés de ce jour
+  // (sans heure : 60 min, signalés) ; retenu = plages retenues pour les AUTRES demandes (celles de saufDemande ne comptent pas).
+  function demChargeJour(iso, saufDemande) {
+    let techs = [];
+    try { techs = typeof techsCapacite === "function" ? techsCapacite(iso) : demTechs(iso); } catch (_) {}
+    const dn = rdvConfig.diner || {};
+    const dDeb = dn.actif && dn.debut != null ? Number(dn.debut) : null, dFin = dDeb != null ? dDeb + (Number(dn.duree) || 60) / 60 : null;
+    let cap = 0;
+    techs.forEach(t => { cap += (t.fin - t.debut) - (dDeb != null ? Math.max(0, Math.min(t.fin, dFin) - Math.max(t.debut, dDeb)) : 0); });
+    let reserve = 0, sansHeure = 0;
+    (typeof machines !== "undefined" && Array.isArray(machines) ? machines : []).forEach(m => {
+      if (!m || m.statut === "archive" || m.echeance !== iso) return;
+      if (m.heure) reserve += (Number(m.dureeEstimee) || 60) / 60; else { reserve += 1; sansHeure++; }
+    });
+    let retenu = 0;
+    retenus.forEach(r => {
+      if (String(r.iso).slice(0, 10) !== iso || (saufDemande && r.demande_id === saufDemande)) return;
+      retenu += (Number(r.duree_min) || 60) / 60;
+    });
+    const pct = cap > 0 ? Math.round((reserve + retenu) / cap * 100) : 0;
+    const niveau = cap <= 0 ? 0 : pct >= CHARGE_N3 ? 3 : pct >= CHARGE_N2 ? 2 : 1;   // 0 = aucun technicien (jamais « 0 % » en vert)
+    return { iso, cap, reserve, retenu, sansHeure, pct, niveau, techs: techs.length, libelle: cap <= 0 ? "aucun technicien" : pct + " % chargé" };
+  }
+  function demChargeInfo(ch) {
+    if (ch.cap <= 0) return "Aucun technicien disponible ce jour-là";
+    return hDec(ch.reserve) + " de rendez-vous" + (ch.retenu ? " + " + hDec(ch.retenu) + " de plages retenues" : "") + " sur " + hDec(ch.cap)
+      + " de capacité (" + ch.techs + " technicien" + (ch.techs > 1 ? "s" : "") + ", dîner exclu)"
+      + (ch.sansHeure ? " — " + ch.sansHeure + " bon" + (ch.sansHeure > 1 ? "s" : "") + " sans heure compté" + (ch.sansHeure > 1 ? "s" : "") + " 60 min" : "");
+  }
+  function demLundiDe(iso) { const d = new Date(String(iso).slice(0, 10) + "T12:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return isoLocal(d); }
+  // Premier jour d'ouverture à partir de demain (le samedi et le dimanche : lundi) — jamais le lundi de demain, qui serait passé
+  function demPremierJourOuvert() {
+    const d = new Date(); d.setDate(d.getDate() + 1);
+    for (let i = 0; i < 14; i++, d.setDate(d.getDate() + 1)) if ((rdvConfig.horaire || {})[d.getDay()]) return isoLocal(d);
+    const t = new Date(); t.setDate(t.getDate() + 1); return isoLocal(t);
+  }
+  function demCalDemi() {   // hauteur d'une demi-heure (px) : 30 au doigt (iPad, cellulaire), 22 à la souris ; matchMedia absent de jsdom
+    let px = 22;
+    try { if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) px = 30; } catch (_) {}
+    return px;
+  }
+  function demCalVisible() {
+    if (demCalPref === undefined) {
+      demCalPref = null;
+      try { const v = localStorage.getItem(CLE_DEM_CAL); if (v === "1") demCalPref = true; else if (v === "0") demCalPref = false; } catch (_) {}
+    }
+    return demCalPref === null ? window.innerWidth >= 1000 : demCalPref;   // par défaut : affiché si l'écran est assez large (iPad en paysage compris)
+  }
+  function demCalBasculer() {
+    demCalPref = !demCalVisible();
+    try { localStorage.setItem(CLE_DEM_CAL, demCalPref ? "1" : "0"); } catch (_) {}
+    demRendrePicker();
+  }
+  // Blocs qui se chevauchent : côte à côte (voie / nv = nombre de voies de la grappe)
+  function demCalVoies(L) {
+    L.sort((a, b) => a.debut - b.debut || a.fin - b.fin);
+    let grappe = [], fin = -1;
+    const clore = () => { const n = grappe.reduce((m, x) => Math.max(m, x.voie + 1), 1); grappe.forEach(x => { x.nv = n; }); grappe = []; };
+    L.forEach(e => {
+      if (grappe.length && e.debut >= fin - 1e-9) { clore(); fin = -1; }
+      const pris = grappe.filter(x => x.fin > e.debut + 1e-9).map(x => x.voie);
+      let v = 0; while (pris.includes(v)) v++;
+      e.voie = v; grappe.push(e); fin = Math.max(fin, e.fin);
+    });
+    clore();
+  }
+  // Le mini-calendrier : une colonne par jour d'ouverture de la semaine demPicker.semaine (lundi), jamais le week-end fermé.
+  // Ordre de dessin : fond (fermé, dîner) < blocs et plages retenues < PLAGES LIBRES (au-dessus : un bloc ne les masque pas) < choix.
+  function demCalHTML(d) {
+    const demi = demCalDemi(), px = demi * 2, dureeH = demPicker.duree / 60, auj = isoLocal(new Date());
+    const hor = rdvConfig.horaire || {}, dn = rdvConfig.diner || {};
+    const dDeb = dn.actif && dn.debut != null ? Number(dn.debut) : null, dFin = dDeb != null ? dDeb + (Number(dn.duree) || 60) / 60 : null;
+    const bons = typeof machines !== "undefined" && Array.isArray(machines) ? machines : [];
+    const jours = [];
+    for (let k = 0; k < 7; k++) {
+      const x = new Date(demPicker.semaine + "T12:00"); x.setDate(x.getDate() + k);
+      const h = hor[x.getDay()]; if (!h) continue;
+      const iso = isoLocal(x);
+      jours.push({ iso, dow: x.getDay(), ouvre: Number(h[0]), ferme: Number(h[1]), ferie: estFerie(iso), passe: iso <= auj, items: [] });
+    }
+    if (!jours.length) return `<div class="rap-muted" style="padding:8px">Aucun jour d'ouverture cette semaine.</div>`;
+    let hDeb = 24, hFin = 0;
+    jours.forEach(j => {
+      bons.forEach(m => {
+        if (!m || m.statut === "archive" || m.echeance !== j.iso || !m.heure) return;
+        const a = dec(m.heure); if (!isFinite(a)) return;
+        j.items.push({ debut: a, fin: a + (Number(m.dureeEstimee) || 60) / 60, m });
+      });
+      retenus.forEach(r => {
+        if (String(r.iso).slice(0, 10) !== j.iso) return;
+        const a = dec(r.heure); if (!isFinite(a)) return;
+        j.items.push({ debut: a, fin: a + (Number(r.duree_min) || 60) / 60, r, moi: r.demande_id === d.id });
+      });
+      demCalVoies(j.items);
+      hDeb = Math.min(hDeb, Math.floor(j.ouvre), ...j.items.map(e => Math.floor(e.debut)));
+      hFin = Math.max(hFin, Math.ceil(j.ferme), ...j.items.map(e => Math.ceil(e.fin)));
+    });
+    hDeb = Math.max(0, hDeb); hFin = Math.min(24, hFin); if (hFin <= hDeb) hFin = hDeb + 1;
+    const H = Math.round((hFin - hDeb) * px), Y = (t) => Math.round((t - hDeb) * px);
+    const NUM = ["①", "②", "③"];
+    const colonnes = jours.map(j => {
+      const ch = demChargeJour(j.iso, d.id);
+      let cellules = [], nbTechs = 0;
+      if (!j.passe && !j.ferie) {
+        try { cellules = demHeures(j.iso, demPicker.duree, d.type_machine, d.id); nbTechs = (demTechs(j.iso, d.type_machine) || []).length; } catch (_) {}
+      }
+      const lib = cellules.map((h, i) => {
+        const a = dec(h.heure), suiv = cellules[i + 1] ? dec(cellules[i + 1].heure) : null;   // un départ hors grille (tampon de 15 min) garde sa propre cellule
+        return { heure: h.heure, places: h.places, debut: a, len: suiv != null ? Math.min(PAS_MIN / 60, suiv - a) : PAS_MIN / 60 };
+      });
+      demCalDonnees[j.iso] = { cellules: lib, ouvre: j.ouvre, ferme: j.ferme };
+      const bas = j.ferie ? `<small>🎉 ${ech(j.ferie)}</small>`
+        : ch.cap <= 0 ? `<small class="dmc-aucun">aucun technicien</small>`
+        : `<span class="dmc-bar n${ch.niveau}" title="${ech(demChargeInfo(ch))}"><i style="width:${Math.min(100, ch.pct)}%"></i></span><small>${ch.pct} %</small>${ch.sansHeure ? `<small class="dmc-sh" title="Compté 60 min chacun">dont ${ch.sansHeure} sans heure</small>` : ""}`;
+      let fond = "";
+      if (j.ferie) fond = `<div class="dmc-ferme" style="top:0;height:${H}px"></div>`;
+      else {
+        if (j.ouvre > hDeb) fond += `<div class="dmc-ferme" style="top:0;height:${Y(j.ouvre)}px"></div>`;
+        if (j.ferme < hFin) fond += `<div class="dmc-ferme" style="top:${Y(j.ferme)}px;height:${H - Y(j.ferme)}px"></div>`;
+        if (dDeb != null) {   // la bande du dîner seulement si elle croise les heures d'ouverture de ce jour
+          const a = Math.max(dDeb, j.ouvre), b = Math.min(dFin, j.ferme);
+          if (b > a + 1e-9) fond += `<div class="dmc-diner" style="top:${Y(a)}px;height:${Y(b) - Y(a)}px" title="Dîner">dîner</div>`;
+        }
+      }
+      const items = j.items.map(e => {
+        const st = `top:${Y(e.debut)}px;height:${Math.max(10, Math.round((e.fin - e.debut) * px))}px;left:${(e.voie * 100 / e.nv).toFixed(2)}%;width:${(100 / e.nv).toFixed(2)}%`;
+        if (e.m) {
+          let tip, nom, coul = "";
+          try { tip = calAttrTitre(calEvtInfo(e.m, hhmm(e.fin))); nom = calNomClient(e.m) || nomMachine(e.m); coul = calCouleurStatut(e.m.statut); } catch (_) { tip = ech(e.m.client || ""); nom = e.m.client || ""; }
+          return `<div class="dmc-bloc" style="${st}${coul ? ";border-left-color:" + ech(coul) : ""}"><span class="dmc-tip" title="${tip}">${hhmm(e.debut)} ${ech(nom)}</span></div>`;
+        }
+        const tip = e.moi ? "Plage retenue pour cette demande (pas comptée dans la charge)" : "Plage retenue pour une autre demande" + (e.r.client ? " : " + e.r.client : "");
+        return `<div class="dmc-bloc dmc-ret${e.moi ? " dmc-moi" : ""}" style="${st}"><span class="dmc-tip" title="${ech(tip)}">${hhmm(e.debut)} ${ech(e.moi ? "retenue" : e.r.client || "retenue")}</span></div>`;
+      }).join("");
+      const libres = lib.map(c => `<div class="dmc-libre" data-iso="${j.iso}" data-h="${c.heure}" style="top:${Y(c.debut)}px;height:${Math.max(8, Math.round(c.len * px))}px" title="${ech(jolieDate(j.iso, c.heure) + " — " + c.places + " place" + (c.places > 1 ? "s" : "") + " : clique pour la proposer")}"><span>${c.heure.replace(":", "h")}</span>${nbTechs > 1 || c.places > 1 ? `<small>${c.places} pl.</small>` : ""}</div>`).join("");
+      const choix = demPicker.choix.map((c, i) => c.iso !== j.iso ? "" : `<div class="dmc-choix" data-i="${i}" style="top:${Y(dec(c.heure))}px;height:${Math.max(14, Math.round(dureeH * px))}px" title="${ech("Choix " + (i + 1) + " — " + jolieDate(c.iso, c.heure) + " : clique pour le retirer")}">${NUM[i] || i + 1} ${c.heure.replace(":", "h")}</div>`).join("");
+      const cls = (j.passe ? " passe" : "") + (j.ferie ? " ferie" : "");
+      return `<div class="dmc-col"><div class="dmc-ent${cls}${j.iso === demPicker.jour ? " sel" : ""}"><b>${JC[j.dow].slice(0, 3)}. ${Number(j.iso.slice(8))}</b>${bas}</div>
+        <div class="dmc-pistes${cls}" data-iso="${j.iso}" data-t0="${hDeb}" data-demi="${demi}"${j.ferie ? ` data-ferie="${ech(j.ferie)}"` : ""} style="height:${H}px">${fond}${items}${libres}${choix}</div></div>`;
+    }).join("");
+    const gut = `<div class="dmc-gut"><div class="dmc-ent dmc-vide"></div><div class="dmc-heures" style="height:${H}px">${Array.from({ length: hFin - hDeb }, (_, i) => `<span style="top:${Y(hDeb + i)}px">${hDeb + i}h</span>`).join("")}</div></div>`;
+    const court = (iso) => { const x = new Date(iso + "T12:00"); return x.getDate() + " " + MC[x.getMonth()]; };
+    const cette = demLundiDe(demPremierJourOuvert());
+    return `<div class="dmc-nav"><button type="button" class="rap-b s" id="dmc-prec" title="Semaine précédente" ${demPicker.semaine <= cette ? "disabled" : ""}>‹</button>
+        <b>Semaine du ${court(jours[0].iso)} au ${court(jours[jours.length - 1].iso)}</b>
+        <button type="button" class="rap-b s" id="dmc-suiv" title="Semaine suivante">›</button>
+        <button type="button" class="rap-b s" id="dmc-auj" ${demPicker.semaine === cette ? "disabled" : ""}>Cette semaine</button></div>
+      <div class="dmc-corps" style="--dmc-n:${jours.length}">${gut}${colonnes}</div>
+      <div class="dmc-leg"><span><i class="lg lg-libre"></i>libre pour cette durée</span><span><i class="lg lg-bloc"></i>rendez-vous</span><span><i class="lg lg-ret"></i>plage retenue</span><span><b>① ② ③</b> tes choix</span><span>barre et % = charge d'ouvrage du jour</span></div>`;
+  }
+  // Clic dans le mini-calendrier : un choix = le retirer ; une plage verte = la proposer ; ailleurs = dire pourquoi pas
+  function demCalClic(e) {
+    const cible = e.target && e.target.closest ? e.target : null; if (!cible || !demPicker) return;
+    const choix = cible.closest(".dmc-choix");
+    if (choix) { const i = Number(choix.dataset.i); if (demPicker.choix[i]) { demPicker.choix.splice(i, 1); demRendrePicker(); } return; }
+    const piste = cible.closest(".dmc-pistes"); if (!piste) return;
+    const iso = piste.dataset.iso, info = demCalDonnees[iso] || { cellules: [], ouvre: 0, ferme: 24 };
+    const aviser = (m) => { if (typeof toastAviser === "function") toastAviser(m, false); };
+    if (piste.dataset.ferie) { aviser("Férié : " + piste.dataset.ferie + " — l'atelier est fermé."); return; }
+    if (iso <= isoLocal(new Date())) { aviser(iso < isoLocal(new Date()) ? "Cette journée est passée." : "On propose les rendez-vous à partir de demain."); return; }
+    const libre = cible.closest(".dmc-libre");
+    let heure = libre ? libre.dataset.h : null;
+    const t = Number(piste.dataset.t0) + (e.clientY - piste.getBoundingClientRect().top - piste.clientTop) / (2 * Number(piste.dataset.demi));
+    if (!heure) {   // l'heure du clic = le dernier départ de demHeures dont le début est ≤ au clic (les départs ne sont pas tous sur une grille de 30 min)
+      const avant = info.cellules.filter(c => c.debut <= t + 1e-9), dern = avant[avant.length - 1];
+      if (dern && t < dern.debut + dern.len - 1e-9) heure = dern.heure;
+    }
+    if (heure) { demBasculerChoix(iso, heure); return; }
+    const dn = rdvConfig.diner || {}, dDeb = dn.actif && dn.debut != null ? Number(dn.debut) : null, dFin = dDeb != null ? dDeb + (Number(dn.duree) || 60) / 60 : null;
+    const dureeH = demPicker.duree / 60;
+    if (t < info.ouvre || t >= info.ferme) aviser("Hors des heures d'ouverture de l'atelier.");
+    else if (dDeb != null && t >= dDeb && t < dFin) aviser("C'est l'heure du dîner : pas de rendez-vous.");
+    else if (t + dureeH > info.ferme + 1e-9) aviser("Cette durée ne tient pas avant la fermeture.");
+    else if (dDeb != null && t < dDeb && t + dureeH > dDeb + 1e-9) aviser("Cette durée déborde sur l'heure du dîner.");
+    else aviser("Cette plage est déjà occupée (rendez-vous ou plage retenue).");
+  }
+  window.__demChargeJour = demChargeJour;
+  window.__demCalRafraichir = function () {   // appelé par rafraichirVues (les bons changent) et par le filet de 120 s (les retenues expirent)
+    try { if (demOuverte && demPicker && document.getElementById("dem-duree")) demRendrePicker(); } catch (_) {}   // l'état se lit dans le DOM, jamais par un drapeau
+  };
   // Le calendrier appelle ça pour hachurer
   window.__demCreneauxJour = (iso) => retenus.filter(r => String(r.iso).slice(0, 10) === iso)
     .map(r => ({ heure: r.heure, duree: r.duree_min || 60, client: r.client || "", min: r.minutes_restantes }));
@@ -27872,11 +28061,39 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     demTempsReel();
     voile.classList.add("ouvert");
     demRendre();
-    demCharger().then(() => demSmsCharger()).then(() => { demMajBadge(); demRendre(); });
+    demCharger().then(() => demSmsCharger()).then(() => { demMajBadge(); demRafraichir(); });   // v178-CAL9 : sans fermer un sélecteur déjà ouvert
   };
 
+  // v178-CAL9 : redessin « doux » (temps réel, rechargements). Le sélecteur de créneaux reste affiché, avec ses choix et sa position ;
+  // un formulaire ouvert (Renseignements, Coordonnées, « Corrigé ») n'est jamais remplacé ; le DOM ne change que si le HTML diffère.
+  function demRafraichir() {
+    try {
+      if (!voile.classList.contains("ouvert")) return;
+      const b = document.getElementById("dem-boite");
+      if (demOuverte) {
+        const frais = demandes.find(x => x.id === demOuverte.id) || null;   // demOuverte est l'ancien objet : on relit la demande
+        const picker = !!document.getElementById("dem-duree");              // l'état se lit dans le DOM : #dem-zone sert aussi aux formulaires
+        const zone = document.getElementById("dem-zone");
+        const formulaire = !picker && !!(zone && zone.children.length);
+        const termine = !frais || (frais.statut !== demOuverte.statut && ["confirmee", "refusee", "expiree"].includes(frais.statut));
+        if (frais) demOuverte = frais;
+        if (formulaire) return;
+        if (termine) {
+          if (!frais) demOuverte = null;
+          if (picker && typeof toastAviser === "function") toastAviser("Cette demande vient de changer", true);
+          const h0 = b ? b.scrollTop : 0; demRendre(); if (b) b.scrollTop = h0;
+          return;
+        }
+        if (picker) { demRendrePicker(); return; }
+      }
+      const haut = b ? b.scrollTop : 0;
+      demRendre();
+      if (b) b.scrollTop = haut;
+    } catch (_) { try { demRendre(); } catch (__) {} }
+  }
   function demRendre() {
     const b = document.getElementById("dem-boite");
+    b.classList.remove("dem-large");   // v178-CAL9 : la classe revient avec le sélecteur de créneaux (demRendrePicker)
     const n = (f) => demandes.filter(f).length;
     const cpt = { nouvelles: n(d => ["nouvelle", "autres_choix", "conflit"].includes(d.statut) || (d.statut === "confirmee" && !d.soum_id)),
                   attente: n(d => d.statut === "creneaux_envoyes"),
@@ -28178,19 +28395,38 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
   }
 
   // ── choix des créneaux ────────────────────────────────────────────────
+  // v178-CAL9 : ajoute ou retire un choix (case de l'étape 3 ET mini-calendrier) ; trois choix au plus
+  function demBasculerChoix(iso, heure) {
+    const i = demPicker.choix.findIndex(c => c.iso === iso && c.heure === heure);
+    if (i >= 0) demPicker.choix.splice(i, 1);
+    else {
+      if (demPicker.choix.length >= 3) { alert("Trois choix au maximum — retire-en un d'abord."); return; }
+      const c = { iso, heure };
+      try { const h = demHeures(iso, demPicker.duree, demOuverte.type_machine, demOuverte.id).find(x => x.heure === heure); if (h && h.techs) c.techs = h.techs; } catch (_) {}   // CALA relit de toute façon au moment de l'envoi
+      demPicker.choix.push(c);
+    }
+    demRendrePicker();
+  }
   function demRendrePicker() {
-    const d = demOuverte, z = document.getElementById("dem-zone");
+    const d = demOuverte, z = document.getElementById("dem-zone"), b = document.getElementById("dem-boite");
+    if (!d || !z || !b || !demPicker) return;
     if (demPicker.depuis == null) demPicker.depuis = 0;
     if (!demPicker.nb) demPicker.nb = NB_JOURS;
     const jours = demJours(demPicker.duree, d.type_machine, d.id, demPicker.nb, demPicker.depuis);
     if (!demPicker.jour && jours.length) demPicker.jour = (jours.find(j => j.heures.length) || jours.find(j => !j.ferie) || jours[0]).iso;
     const jour = jours.find(j => j.iso === demPicker.jour) || jours[0];
-    z.innerHTML = `<div class="rap-carte" style="margin-top:10px">
+    if (!demPicker.semaine) demPicker.semaine = demLundiDe(jours.length ? jours[0].iso : demPremierJourOuvert());   // v178-CAL9 : la semaine du premier jour offert
+    const voirCal = demCalVisible();
+    let cal = "";
+    if (voirCal) { try { cal = demCalHTML(d); } catch (_) { cal = `<div class="rap-muted" style="padding:8px">Calendrier indisponible.</div>`; } }
+    const html = `<div class="rap-carte" style="margin-top:10px"><div class="dem-duo${voirCal ? " dem-duo-cal" : ""}">
+      <div class="dem-a">
       <div class="rap-ligne"><b>1. Durée du rendez-vous</b>
         <select id="dem-duree" style="border:1px solid #cbd5e1;border-radius:6px;padding:4px 7px">
           ${DUREES.map(x => `<option value="${x}" ${x === demPicker.duree ? "selected" : ""}>${x < 60 ? x + " min" : (x / 60) + " h"}</option>`).join("")}
         </select>
-        <span class="rap-muted">Le nombre de places tient compte des techniciens présents.</span></div>
+        <span class="rap-muted">Le nombre de places tient compte des techniciens présents.</span>
+        <button type="button" class="rap-b s" id="dem-cal-btn" style="margin-left:auto" aria-pressed="${voirCal}" title="Les rendez-vous et la charge d'ouvrage de la semaine, à côté des plages proposées">${voirCal ? "🗓️ Masquer le calendrier" : "🗓️ Voir le calendrier"}</button></div>
       <div class="rap-ligne" style="margin-top:10px;flex-wrap:wrap;gap:6px">
         <b>2. Choisis une journée</b>
         <button class="rap-b s" id="dem-sem-prec" ${demPicker.depuis <= 0 ? "disabled" : ""}>← semaine précédente</button>
@@ -28205,10 +28441,21 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       <div class="dem-jours">${jours.map(j => {
         const dd = new Date(j.iso + "T12:00");
         const voulu = d.date_souhaitee && j.iso === String(d.date_souhaitee).slice(0, 10);
+        let pb = "";   // v178-CAL9 : la charge d'ouvrage du jour (indicateur interne : une bordure écraserait celles de .voulu, .on et .ferie)
+        if (!j.ferie) {
+          try {
+            const ch = demChargeJour(j.iso, d.id);
+            pb = ch.cap <= 0 ? `<i class="dem-pb n0" title="${ech(demChargeInfo(ch))}">aucun technicien</i>`
+              : `<i class="dem-pb n${ch.niveau}" style="--p:${Math.min(100, ch.pct)}%" title="${ech(demChargeInfo(ch))}">${ch.pct} % chargé</i>`;
+          } catch (_) {}
+        }
         return `<div class="dem-jour ${j.iso === demPicker.jour ? "on" : ""} ${j.heures.length ? "" : "vide"} ${j.ferie ? "ferie" : ""} ${voulu ? "voulu" : ""}" data-j="${j.iso}" ${voulu ? 'title="La date demandée par le client"' : ""}>
           <small>${JC[dd.getDay()].slice(0, 3)}.</small><b>${dd.getDate()} ${MC[dd.getMonth()]}</b>
-          <small>${j.ferie ? "🎉 " + ech(j.ferie) : j.heures.length ? j.places + " places · " + (j.techs.length || 0) + " tech" : "complet"}</small></div>`;
+          <small>${j.ferie ? "🎉 " + ech(j.ferie) : j.heures.length ? j.places + " places · " + (j.techs.length || 0) + " tech" : "complet"}</small>${pb}</div>`;
       }).join("")}</div>
+      </div>
+      <div class="dmc" id="dem-cal"${voirCal ? "" : " hidden"}>${cal}</div>
+      <div class="dem-b">
       <b>3. Coche jusqu'à 3 heures ${jour ? "— " + jolieDate(jour.iso) : ""}</b>
       <div class="dem-heures">${jour && jour.heures.length
         ? jour.heures.map(h => { const on = demPicker.choix.some(c => c.iso === jour.iso && c.heure === h.heure);
@@ -28222,28 +28469,37 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
         <span class="rap-muted" style="margin-right:auto">Les plages envoyées sont retenues ${RETENU_MIN} min.</span>
         <button class="rap-b ${demCanal(d) === "courriel" ? "p" : "s"}" id="dem-env-courriel" ${!demPicker.choix.length || !d.courriel ? "disabled" : ""}>✉️ Par courriel${demCanal(d) === "courriel" ? " (son choix)" : ""}</button>
         <button class="rap-b ${demCanal(d) === "courriel" ? "s" : "p"}" id="dem-env-sms" ${!demPicker.choix.length || !d.tel ? "disabled" : ""}>📱 Par SMS${demCanal(d) === "sms" ? " (son choix)" : ""}</button>
-      </div></div>`;
+      </div>
+      </div></div></div>`;
+    b.classList.toggle("dem-large", voirCal);   // v178-CAL9 : la fenêtre s'élargit quand le calendrier est affiché (retirée au début de demRendre)
+    if (z.querySelector("#dem-duree") && html === demPickerSig) return;   // v178-CAL9 : rien n'a changé : aucun nœud remplacé (un tap, le menu natif de la durée sur iPad)
+    const haut = b.scrollTop;
+    demPickerSig = html;
+    z.innerHTML = html;
     document.getElementById("dem-duree").onchange = e => { demPicker.duree = Number(e.target.value); demPicker.choix = []; demRendrePicker(); };
-    z.querySelectorAll(".dem-jour").forEach(x => x.onclick = () => { if (x.classList.contains("vide")) return; demPicker.jour = x.dataset.j; demRendrePicker(); });
+    z.querySelectorAll(".dem-jour").forEach(x => x.onclick = () => { if (x.classList.contains("vide")) return; demPicker.jour = x.dataset.j; demPicker.semaine = demLundiDe(x.dataset.j); demRendrePicker(); });
     const prec = document.getElementById("dem-sem-prec");
-    if (prec) prec.onclick = () => { demPicker.depuis = Math.max(0, demPicker.depuis - 7); demPicker.jour = null; demRendrePicker(); };
+    if (prec) prec.onclick = () => { demPicker.depuis = Math.max(0, demPicker.depuis - 7); demPicker.jour = null; demPicker.semaine = null; demRendrePicker(); };
     const suiv = document.getElementById("dem-sem-suiv");
-    if (suiv) suiv.onclick = () => { demPicker.depuis += 7; demPicker.jour = null; demRendrePicker(); };
+    if (suiv) suiv.onclick = () => { demPicker.depuis += 7; demPicker.jour = null; demPicker.semaine = null; demRendrePicker(); };
     const raz = document.getElementById("dem-sem-reset");
-    if (raz) raz.onclick = () => { demPicker.depuis = 0; demPicker.jour = null; demRendrePicker(); };
+    if (raz) raz.onclick = () => { demPicker.depuis = 0; demPicker.jour = null; demPicker.semaine = null; demRendrePicker(); };
     const nbj = document.getElementById("dem-nbj");
     if (nbj) nbj.onchange = e => { demPicker.nb = parseInt(e.target.value, 10) || NB_JOURS; demRendrePicker(); };
-    z.querySelectorAll(".dem-h").forEach(x => x.onclick = () => {
-      const h = x.dataset.h, iso = demPicker.jour;
-      const i = demPicker.choix.findIndex(c => c.iso === iso && c.heure === h);
-      if (i >= 0) demPicker.choix.splice(i, 1);
-      else { if (demPicker.choix.length >= 3) { alert("Trois choix au maximum — retire-en un d'abord."); return; } demPicker.choix.push({ iso, heure: h }); }
-      demRendrePicker();
-    });
+    z.querySelectorAll(".dem-h").forEach(x => x.onclick = () => demBasculerChoix(demPicker.jour, x.dataset.h));
     z.querySelectorAll("button[data-x]").forEach(x => x.onclick = () => { demPicker.choix.splice(Number(x.dataset.x), 1); demRendrePicker(); });
     const sms = document.getElementById("dem-env-sms"), crl = document.getElementById("dem-env-courriel");
     if (sms) sms.onclick = () => demEnvoyerCreneaux("sms");
     if (crl) crl.onclick = () => demEnvoyerCreneaux("courriel");
+    // v178-CAL9 : le bouton du calendrier, sa navigation (‹ borné à « cette semaine ») et ses clics
+    document.getElementById("dem-cal-btn").onclick = demCalBasculer;
+    const cette = demLundiDe(demPremierJourOuvert()), semaine = (n) => { const x = new Date(demPicker.semaine + "T12:00"); x.setDate(x.getDate() + 7 * n); return isoLocal(x); };
+    const cPrec = document.getElementById("dmc-prec"), cSuiv = document.getElementById("dmc-suiv"), cAuj = document.getElementById("dmc-auj"), cEl = document.getElementById("dem-cal");
+    if (cPrec) cPrec.onclick = () => { const s = semaine(-1); if (s >= cette) { demPicker.semaine = s; demRendrePicker(); } };
+    if (cSuiv) cSuiv.onclick = () => { demPicker.semaine = semaine(1); demRendrePicker(); };
+    if (cAuj) cAuj.onclick = () => { demPicker.semaine = cette; demRendrePicker(); };
+    if (cEl && voirCal) cEl.onclick = demCalClic;
+    b.scrollTop = haut;
   }
 
   function demTexteCreneaux(d, choix, canal) {
@@ -31802,7 +32058,67 @@ function rdvAvertirSurcharge(iso, heureDec, dureeMin, id, tech) {
   } catch (_) { return true; }
 }
 </script>
-<style id="v178-CAL9"></style>
+<style id="v178-CAL9">
+/* v178-CAL9 : calendrier de la semaine et charge d'ouvrage à côté des créneaux proposés (Demandes de service > fiche > Proposer des créneaux) */
+#dem-boite.dem-large{width:min(1500px,100%)!important}
+.dem-duo{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"a" "cal" "b";gap:10px 0}
+.dem-duo>.dem-a{grid-area:a;min-width:0}
+.dem-duo>.dem-b{grid-area:b;min-width:0}
+.dem-duo>.dmc{grid-area:cal;min-width:0}
+@media (min-width:1000px){
+  .dem-duo.dem-duo-cal{grid-template-columns:minmax(0,2fr) minmax(0,3fr);grid-template-areas:"a cal" "b cal";grid-template-rows:auto 1fr;gap:10px 16px}
+  .dem-duo.dem-duo-cal>.dmc{align-self:start;position:sticky;top:0}
+}
+/* indicateur de charge sur chaque tuile de l'étape 2 (un fond, pas une bordure : .voulu, .on et .ferie gardent les leurs) */
+.dem-pb{display:block;font-style:normal;font-size:10px;font-weight:700;line-height:1.25;margin-top:4px;padding:1px 6px;border-radius:999px;color:#1f2937;white-space:normal;
+  background:linear-gradient(90deg,var(--pc,#e2e8f0) var(--p,100%),#e5e7eb var(--p,100%))}
+.dem-pb.n1{--pc:#bbf7d0}.dem-pb.n2{--pc:#fde68a}.dem-pb.n3{--pc:#fecaca;color:#7f1d1d}.dem-pb.n0{background:#e5e7eb;color:#475569}
+.dmc{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:8px;font-size:12px;color:#0f172a}
+.dmc[hidden]{display:none}
+.dmc-nav{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.dmc-nav b{flex:1;min-width:120px;text-align:center;font-size:13px}
+.dmc-nav .rap-b{min-height:34px}
+.dmc-nav .rap-b[disabled]{opacity:.4;cursor:not-allowed}
+.dmc-corps{display:grid;grid-template-columns:28px repeat(var(--dmc-n,5),minmax(0,1fr));gap:0 3px}
+.dmc-col,.dmc-gut{min-width:0}
+.dmc-ent{height:56px;box-sizing:border-box;padding:3px 3px 2px;border:1px solid #e2e8f0;border-bottom:0;border-radius:6px 6px 0 0;background:#f8fafc;text-align:center;overflow:hidden;line-height:1.2}
+.dmc-ent b{display:block;font-size:12px}
+.dmc-ent small{display:block;font-size:10px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dmc-ent.sel{background:#eef2ff;border-color:#a5b4fc}
+.dmc-ent.ferie{background:#fef2f2;color:#991b1b}
+.dmc-ent.ferie small{color:#991b1b}
+.dmc-ent.passe{opacity:.55}
+.dmc-ent .dmc-aucun{color:#64748b;font-style:italic}
+.dmc-ent .dmc-sh{color:#92400e}
+.dmc-ent.dmc-vide{border-color:transparent;background:none}
+.dmc-bar{display:block;height:6px;background:#e2e8f0;border-radius:3px;margin:3px 2px 1px;overflow:hidden}
+.dmc-bar i{display:block;height:100%}
+.dmc-bar.n1 i{background:#16a34a}.dmc-bar.n2 i{background:#f59e0b}.dmc-bar.n3 i{background:#dc2626}
+.dmc-pistes{position:relative;overflow:hidden;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:0 0 6px 6px;background-color:#fff;
+  background-image:linear-gradient(to bottom,#e5e7eb 1px,transparent 1px);background-size:100% calc(var(--dmc-demi,22px) * 2)}
+.dmc-pistes.passe{background-color:#f8fafc}
+.dmc-heures{position:relative;margin-top:1px;font-size:10px;color:#64748b}
+.dmc-heures span{position:absolute;right:2px;transform:translateY(-1px)}
+.dmc-ferme{position:absolute;left:0;right:0;z-index:0;pointer-events:none;background:repeating-linear-gradient(135deg,#f1f5f9,#f1f5f9 5px,#e2e8f0 5px,#e2e8f0 10px)}
+.dmc-diner{position:absolute;left:0;right:0;z-index:0;pointer-events:none;background:rgba(100,116,139,.2);color:#475569;font-size:10px;text-align:center;overflow:hidden}
+/* rendez-vous existants : sous les plages libres, jamais cliquables (le clic passe à la colonne) ; seule la ligne du titre porte l'info-bulle */
+.dmc-bloc{position:absolute;z-index:1;box-sizing:border-box;overflow:hidden;pointer-events:none;background:#dbeafe;border:1px solid #93c5fd;border-left:4px solid #3b82f6;border-radius:4px;font-size:10px;line-height:1.2;padding:1px 3px}
+.dmc-tip{display:block;pointer-events:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dmc-ret{background:repeating-linear-gradient(45deg,#fef3c7,#fef3c7 5px,#fde68a 5px,#fde68a 10px);border-color:#f59e0b;border-left-color:#d97706}
+.dmc-ret.dmc-moi{background:repeating-linear-gradient(45deg,#ede9fe,#ede9fe 5px,#ddd6fe 5px,#ddd6fe 10px);border-color:#8b5cf6;border-left-color:#6d28d9}
+/* plages libres : AU-DESSUS des blocs (z-index 2 contre 1), translucides pour laisser lire le bloc dessous */
+.dmc-libre{position:absolute;z-index:2;left:1px;right:1px;box-sizing:border-box;overflow:hidden;white-space:nowrap;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:2px;
+  background:rgba(34,197,94,.3);border:1px solid #16a34a;border-radius:3px;padding:0 3px;font-size:10px;font-weight:700;color:#14532d}
+.dmc-libre:hover{background:rgba(34,197,94,.55)}
+.dmc-libre small{font-size:9px;font-weight:600}
+.dmc-choix{position:absolute;z-index:3;left:2px;right:2px;box-sizing:border-box;overflow:hidden;cursor:pointer;background:rgba(79,70,229,.85);color:#fff;border:1px solid #3730a3;border-radius:4px;padding:1px 4px;font-size:11px;font-weight:800;white-space:nowrap}
+.dmc-leg{display:flex;gap:4px 12px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:#475569}
+.dmc-leg .lg{display:inline-block;width:12px;height:10px;margin-right:4px;vertical-align:-1px;border-radius:2px}
+.dmc-leg .lg-libre{background:rgba(34,197,94,.45);border:1px solid #16a34a}
+.dmc-leg .lg-bloc{background:#dbeafe;border:1px solid #93c5fd}
+.dmc-leg .lg-ret{background:repeating-linear-gradient(45deg,#fef3c7,#fef3c7 3px,#fde68a 3px,#fde68a 6px);border:1px solid #f59e0b}
+@media (max-width:999px){.dmc{padding:6px}.dmc-nav b{flex-basis:100%;order:-1}}
+</style>
 <script id="v178-CAL9"></script>
 <style id="v178-CAL6">
 /* v178-CAL6 : fenêtre « Placer au calendrier / Déplacer le rendez-vous » (#voile-repro) et boutons de la soumission */
