@@ -4782,6 +4782,16 @@ function basculerTheme() {
     <div class="fact-entete" id="fact-entete"></div>
     <div class="fact-resume" id="fact-resume"></div>
     <div id="fact-avis"></div>
+    <!-- v178-FAC — 📝 Notes d'atelier (lecture + ajout) : internes, elles ne partent jamais dans la facture. Le champ est STATIQUE (factRendre ne le reconstruit pas). -->
+    <details id="fact-notes" class="fact-notes" open>
+      <summary><span id="fact-notes-titre">📝 Notes d'atelier (0)</span><span class="fact-notes-interne">🔒 Interne</span></summary>
+      <ul id="fact-notes-liste" class="fact-notes-liste"></ul>
+      <div class="fact-notes-saisie">
+        <input id="fact-note-champ" class="champ" type="text" autocomplete="off" placeholder="Ajouter une note d'atelier…"
+               onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();factNoteAjouter();}">
+        <button type="button" class="btn-secondaire" onclick="factNoteAjouter()">＋ Ajouter</button>
+      </div>
+    </details>
     <div class="fact-modes" id="fact-modes">
       <span class="et">Point de départ :</span>
       <button type="button" class="fact-mode" data-mode="suggestion" onclick="factMode('suggestion')" title="Soumission telle quelle + pièces ajoutées et cochées « utilisées » au BT">✨ Suggestion</button>
@@ -5389,6 +5399,7 @@ function rafraichirVues() {
   } catch (_) {}
   try { if (typeof ordreRafraichir === "function") ordreRafraichir(); } catch (_) {}   // v164 : ordre de travail
   //@@v178-A4 rafraichir
+  try { if (factBtId) factNotesRendre(); } catch (_) {}   // v178-FAC : la liste des notes d'atelier suit (temps réel, autre poste)
   //@@v178-A9 rafraichir
   //@@v178-A12 rafraichir
 }
@@ -15513,12 +15524,14 @@ function factOuvrir(id) {
   }
   document.getElementById("fact-memo").value = factMemo;
   document.getElementById("fact-resultat").innerHTML = "";
+  try { factNotesOuvrir(); } catch (_) {}   // v178-FAC : notes d'atelier — ne peut jamais empêcher l'ouverture
   factRendre();
   document.getElementById("fact-pop").classList.add("ouvert");
   factRendreQbo(qboEtat);
   qboStatut(true).then(e => { factRendreQbo(e); if (factBtId === id && !factEnCours) factRendre(); }).catch(() => {});   // v159 : l'entreprise branchée décide de « déjà facturé »
 }
 function factFermer() {
+  try { factNoteBrouillon(); } catch (_) {}   // v178-FAC : une note tapée mais pas ajoutée est gardée
   document.getElementById("fact-pop").classList.remove("ouvert");
   factBtId = null; factRangs = []; factContexte = null;
 }
@@ -15756,6 +15769,7 @@ function factLignesFinales(rangs) {
 function factEnregistrer(silencieux) {
   const m = machines.find(x => x.id === factBtId);
   if (!m) return null;
+  if (!silencieux) { try { factNoteBrouillon(); } catch (_) {} }   // v178-FAC : jamais depuis l'appel silencieux (factLignesPour)
   try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (_) {}
   const t = factMajTotaux();
   const u = utilisateurCourant();
@@ -15906,6 +15920,7 @@ async function factQuickBooks(btn) {
   if (factEnCours) return;
   const m = machines.find(x => x.id === factBtId);
   if (!m) return;
+  try { factNoteBrouillon(); } catch (_) {}   // v178-FAC : note tapée mais pas ajoutée (les notes ne partent jamais dans la facture)
   try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (_) {}
   const lignes = factLignesFinales();
   const ventes = lignes.filter(l => l.type !== "note");
@@ -30420,8 +30435,82 @@ setInterval(() => {
 <script id="v178-COM"></script>
 <style id="v178-PCS"></style>
 <script id="v178-PCS"></script>
-<style id="v178-FAC"></style>
-<script id="v178-FAC"></script>
+<style id="v178-FAC">
+  /* v178-FAC — 📝 Notes d'atelier dans Facturer */
+  #fact-notes { border:1px solid var(--bordure); background:var(--surface-2); border-radius:10px; margin:0 0 10px; }
+  #fact-notes > summary { display:list-item; list-style-position:inside; min-height:44px; box-sizing:border-box; padding:11px 12px; cursor:pointer; font-size:13.5px; font-weight:800; color:var(--encre); line-height:22px; }
+  #fact-notes .fact-notes-interne { margin-left:8px; font-size:11.5px; font-weight:700; color:var(--sourdine); white-space:nowrap; }
+  #fact-notes .fact-notes-liste { list-style:none; margin:0; padding:0 12px; max-height:240px; overflow-y:auto; }
+  #fact-notes .fact-notes-liste li { display:flex; flex-wrap:wrap; gap:2px 8px; padding:6px 0; border-top:1px solid var(--bordure); font-size:13px; line-height:1.45; }
+  #fact-notes .fact-notes-liste .puce { color:var(--c-prete); flex:0 0 auto; }
+  #fact-notes .fact-notes-liste .txt { flex:1 1 0; min-width:0; overflow-wrap:anywhere; color:var(--encre); }
+  #fact-notes .fact-notes-liste .meta { flex:0 0 100%; padding-left:22px; font-size:11.5px; color:var(--sourdine); }
+  #fact-notes .fact-notes-liste .fact-notes-vide { color:var(--sourdine); font-size:12.5px; }
+  #fact-notes .fact-notes-saisie { display:flex; gap:8px; align-items:center; padding:10px 12px 12px; }
+  #fact-notes .champ { font-size:16px; min-width:0; flex:1 1 auto; }
+  #fact-notes .fact-notes-saisie button { min-height:44px; flex:0 0 auto; }
+  @media (max-width: 820px) { #fact-notes .fact-notes-liste { max-height:none; } }
+</style>
+<script id="v178-FAC">
+// v178-FAC — 📝 Notes d'atelier dans la fenêtre Facturer (A4). Les notes du bon (notesLive, sinon notesTech) sont LUES ici ;
+// elles ne partent JAMAIS dans la facture : ni factMemo, ni la charge QuickBooks, ni le CSV (intouchés).
+// Pure, sans muter le bon : liveNotes(m) CRÉE m.notesLive à partir de notesTech, elle n'est appelée qu'à l'ajout d'une note.
+function factNotesAtelier(m) {
+  if (!m) return [];
+  let liste;
+  if (Array.isArray(m.notesLive)) {
+    liste = m.notesLive.map(n => (typeof n === "string" ? { texte: n } : n)).filter(n => n && String(n.texte || "").trim())
+      .map(n => ({ texte: String(n.texte).trim(), tech: n.tech || "", quand: n.quand || "" }));
+  } else {   // bon jamais ouvert en direct : on lit les lignes écrites sur le bon (nettoyées de leur puce)
+    liste = String(m.notesTech || "").split("\n").map(t => t.replace(/^[\s•\-\*·]+/, "").trim()).filter(Boolean)
+      .map(t => ({ texte: t, tech: "", quand: "" }));
+  }
+  return liste.reverse();   // le plus récent en premier, comme le live et la TV
+}
+// Rend la liste et le compte du titre. Ne touche JAMAIS au champ de saisie (statique). Renvoie le nombre de notes.
+function factNotesRendre() {
+  const ul = document.getElementById("fact-notes-liste"), tt = document.getElementById("fact-notes-titre");
+  if (!ul || !tt) return 0;
+  const m = machines.find(x => x.id === factBtId);
+  const notes = m ? factNotesAtelier(m) : [];
+  tt.textContent = "📝 Notes d'atelier (" + notes.length + ")";
+  ul.innerHTML = notes.length ? notes.map(n => {
+    const meta = (n.quand ? "🕐 " + liveDateHeure(n.quand) : "") + (n.tech ? (n.quand ? " · " : "") + n.tech : "");
+    return `<li><span class="puce">✔</span><span class="txt">${echap(n.texte)}</span>${meta ? `<span class="meta">${echap(meta)}</span>` : ""}</li>`;
+  }).join("") : `<li class="fact-notes-vide">Aucune note d'atelier sur ce bon.</li>`;
+  return notes.length;
+}
+// À l'ouverture de la fenêtre : champ vidé, liste rendue ; sur téléphone, bloc replié s'il y a plus de 3 notes
+function factNotesOuvrir() {
+  const c = document.getElementById("fact-note-champ");
+  if (c) c.value = "";
+  const n = factNotesRendre();
+  const d = document.getElementById("fact-notes");
+  if (d) d.open = !(n > 3 && surTelephone());
+}
+// Ajoute la note tapée : le bon est retrouvé par id au moment d'écrire, puis sauvegarde (m.notesTech suit via liveMajNotesTech)
+function factNoteAjouter(sansFocus) {
+  const c = document.getElementById("fact-note-champ");
+  const t = c ? String(c.value || "").trim() : "";
+  if (!t) { if (c && !sansFocus) { try { c.focus(); } catch (_) {} } return false; }
+  if (!factPeutFacturer()) return false;
+  const m = machines.find(x => x.id === factBtId);
+  if (!m) return false;
+  const u = utilisateurCourant();
+  liveNotes(m).push({ texte: t, tech: u ? u.nom : (m.technicien || ""), quand: new Date().toISOString() });
+  liveMajNotesTech(m);
+  c.value = "";
+  sauvegarder();
+  factNotesRendre();
+  if (!sansFocus) { try { c.focus(); } catch (_) {} }
+  return true;
+}
+// Brouillon non vide à la fermeture, à « Enregistrer » ou à « Facturer avec QuickBooks » : ajouté comme note
+function factNoteBrouillon() {
+  const c = document.getElementById("fact-note-champ");
+  if (factBtId && c && String(c.value || "").trim()) factNoteAjouter(true);
+}
+</script>
 <style id="v178-TAB"></style>
 <script id="v178-TAB"></script>
 <style id="v178-CALA"></style>

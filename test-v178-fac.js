@@ -2,7 +2,8 @@
 //   A5 : migration idempotente (chargement, temps réel, poste en retard, import, relireMachines sans boucle, journal d'inventaire),
 //        chemin de remplacement (« → Facturé » puis « ✓ Livrée », depuis « Prêt à facturer » et « Commande de pièce »),
 //        aucune trace dans les fichiers servis (grep statique, hors des deux fonctions de purge).
-//   A4 : voir la seconde partie du fichier.
+//   A4 : notes d'atelier dans Facturer (ordre récent en premier, aucune mutation du bon, échappement, champ statique, brouillons,
+//        téléphone, non-fuite vers QuickBooks / CSV / facturation).
 // Autonome (faux Supabase en ligne, même moteur que outils-v178/test-lib-v178.js).
 //   node outils-v178/run-in-chromium.js test-v178-fac.js ./index.html        (ou NODE_PATH=…/jsdom node test-v178-fac.js ./index.html)
 const { JSDOM } = require("jsdom");
@@ -67,12 +68,13 @@ async function chargerApp(S, { attente = 1500, matches = false } = {}) {
   let html = fs.readFileSync(FICHIER, "utf8");
   html = html.replace("</head>", `<script>window.supabase={createClient:()=>window.__sbStub};</script></head>`);
   { const i = html.lastIndexOf("</body>"); html = html.slice(0, i) + `<script>window.__set=function(n,v){ eval(n+" = v"); }; window.__get=function(n){ return eval(n); };</script>` + html.slice(i); }
-  const o = { alertes: [], confirmations: [], fetchs: [], mm: { matches } };
+  const o = { alertes: [], confirmations: [], fetchs: [], appelsQbo: [], reponseQbo: null, mm: { matches } };
   const dom = new JSDOM(html, { runScripts: "dangerously", pretendToBeVisual: true, url: "https://atelier.mtrperformance.ca/", beforeParse(w) {
     w.__sbStub = S.sb; w.alert = (m) => o.alertes.push(String(m)); w.confirm = (m) => { o.confirmations.push(String(m)); return true; }; w.prompt = () => "";
     w.scrollTo = () => {}; w.matchMedia = () => ({ get matches() { return o.mm.matches; }, addListener() {}, addEventListener() {} }); w.HTMLCanvasElement.prototype.getContext = () => null;
     w.open = () => ({ document: { write() {}, close() {} }, close() {}, location: {} });
-    w.fetch = async (u, init) => { o.fetchs.push({ url: String(u), body: init && init.body ? (() => { try { return JSON.parse(init.body); } catch (e) { return init.body; } })() : null });
+    w.fetch = async (u, init) => { const corps = init && init.body ? (() => { try { return JSON.parse(init.body); } catch (e) { return init.body; } })() : null; o.fetchs.push({ url: String(u), body: corps });
+      if (/functions\/v1\/quickbooks/.test(String(u))) { o.appelsQbo.push(corps); const r = o.reponseQbo ? o.reponseQbo(corps) : { status: 200, data: { ok: true } }; return { ok: r.status < 300, status: r.status, json: async () => r.data }; }
       return { ok: false, status: 404, json: async () => ({}), text: async () => "" }; };
     try { w.localStorage.clear(); } catch (_) {}
   } });
@@ -123,6 +125,7 @@ const mouvSales = () => ([
 const mouvPropres = () => mouvSales().map((x) => Object.assign(x, { ref: x.ref.replace(" · 🎁 cadeau", "") }));
 const aDesTraces = (liste) => (liste || []).some((m) => m && (Object.prototype.hasOwnProperty.call(m, "cadeau") || m.invSortieSource === "cadeau"));
 const refsSales = (liste) => (liste || []).some((x) => x && /🎁|cadeau/i.test(x.ref || ""));
+const index = fs.readFileSync(FICHIER, "utf8");
 const jsonSale = (t) => /"cadeau":\{"le"|"invSortieSource":"cadeau"|🎁 cadeau/.test(t);
 
 (async () => {
@@ -228,6 +231,8 @@ const jsonSale = (t) => /"cadeau":\{"le"|"invSortieSource":"cadeau"|🎁 cadeau/
   ok(e12b.length >= 1 && e12b.every((e) => !refsSales(e.vals.donnees)) && e12b[e12b.length - 1].vals.donnees.some((x) => x.id === "v9" && x.ref === "BT-209"), "invSauverMouv : un mouvement local avec « · 🎁 cadeau » est écrit sans le suffixe (le mouvement est gardé)");
   fermer(A);
 
+  } catch (e) { ok(false, "exception : " + (e && e.stack || e)); }
+  try {
   // ═══════════ M8. Rentabilité : seule rentabilite.cadeau compte (plus de m.cadeau) ═══════════
   A = await chargerApp(creerSupabase({ tableau: [{ id: 1, donnees: [] }, { id: 4, donnees: cp(EMP) }] }));
   connecter(A, "Jason"); A.set("chargementOK", true);
@@ -241,6 +246,8 @@ const jsonSale = (t) => /"cadeau":\{"le"|"invSortieSource":"cadeau"|🎁 cadeau/
   ok(A.get("estCadeauRent")(A.bt("o1")) === false && A.get("estCadeauRent")(A.bt("o2")) === true && A.get("dateCadeau")(A.bt("o2")) === auj && A.get("valeurCadeau")(A.bt("o1")) === 0, "estCadeauRent / dateCadeau / valeurCadeau ne lisent que la rentabilité");
   fermer(A);
 
+  } catch (e) { ok(false, "exception : " + (e && e.stack || e)); }
+  try {
   // ═══════════ R. Chemin de remplacement : « → Facturé » puis « ✓ Livrée », depuis « Prêt à facturer » et « Commande de pièce » ═══════════
   A = await chargerApp(creerSupabase({ tableau: [{ id: 1, donnees: [] }, { id: 4, donnees: cp(EMP) }] }));
   connecter(A, "Jason"); A.set("chargementOK", true);
@@ -275,8 +282,158 @@ const jsonSale = (t) => /"cadeau":\{"le"|"invSortieSource":"cadeau"|🎁 cadeau/
   ok(!A.fetchs.some((f) => /quickbooks/i.test(f.url)), "aucun appel QuickBooks");
   fermer(A);
 
+  } catch (e) { ok(false, "exception : " + (e && e.stack || e)); }
+  try {
+  // ═══════════ N. Notes d'atelier dans Facturer (A4) ═══════════
+  A = await chargerApp(creerSupabase({ tableau: [{ id: 1, donnees: [] }, { id: 4, donnees: cp(EMP) }] }));
+  connecter(A, "Jason"); A.set("chargementOK", true);
+  A.set("catalPieces", [{ num: "A1", desc: "Anode", prix: 15, cout: 6, suivi: true, qte: 6 }]);
+  A.set("invMouv", []);
+  A.set("qboEtat", { connecte: true, company: "Groupe MTR", realm: "R1", env: "production", config: {} });
+  A.reponseQbo = (c) => c.action === "statut" ? { status: 200, data: { ok: true, connecte: true, company: "Groupe MTR", realm: "R1", env: "production", config: {} } }
+    : { status: 200, data: { ok: true, id: "1502", doc: "1502", total: 100, action: "cree", url: "https://app.qbo.intuit.com/app/invoice?txnId=1502", clientId: "77", clientNom: "Alex Paquin", realm: "R1", env: "production", company: "Groupe MTR" } };
+  const bonN = (id, num, o) => Object.assign({ id, numeroBT: num, nom: "Sea-Doo " + num, client: "Alex Paquin", statut: "afacturer", pieces: [P("A1", "Anode", 1, { utilise: true, prixVente: 15 })] }, o || {});
+  A.set("machines", [
+    bonN("n1", "BT-601", { notesLive: [{ texte: "Remplacé l'anode", tech: "Gwendal", quand: iso(13, 0) }, { texte: "Vérifié la courroie", tech: "Gwendal", quand: iso(14, 0) }, { texte: "Essai à l'eau OK", tech: "Jason", quand: iso(15, 0) }] }),
+    bonN("n2", "BT-602", { notesTech: "• Vidange faite\n- Bougies changées\nRien à signaler" }),
+    bonN("n3", "BT-603", { notesLive: [{ texte: "<img src=x onerror=alert(1)> & <b>gras</b>", tech: "<i>Pirate</i>", quand: iso(13, 0) }] }),
+    bonN("n4", "BT-604", { notesLive: [1, 2, 3, 4, 5].map((i) => ({ texte: "Note " + i, tech: "Gwendal", quand: iso(10 + i, 0) })) }),
+    bonN("n5", "BT-605", {}),
+  ]);
+  const textes = () => A.$$("#fact-notes-liste li .txt").map((x) => x.textContent);
+  const champ = () => A.$("#fact-note-champ");
+  const titreN = () => A.$("#fact-notes-titre").textContent;
+  const notesDe = (id) => (A.bt(id).notesLive || []).map((n) => n.texte);
+
+  // N1. Le bloc, l'ordre, le compte, « 🔒 Interne »
+  A.w.factOuvrir("n1");
+  const det = A.$("#fact-notes");
+  ok(det && det.tagName === "DETAILS" && det.open && A.$("#fact-pop").classList.contains("ouvert") && det.previousElementSibling && det.previousElementSibling.id === "fact-avis", "Facturer : <details id=fact-notes open> juste après #fact-avis, la fenêtre est ouverte");
+  ok(titreN() === "📝 Notes d'atelier (3)" && /🔒 Interne/.test(A.$("#fact-notes > summary").textContent), "titre « 📝 Notes d'atelier (3) » et mention « 🔒 Interne »");
+  ok(JSON.stringify(textes()) === JSON.stringify(["Essai à l'eau OK", "Vérifié la courroie", "Remplacé l'anode"]), "notes d'atelier du bon : la plus récente en premier");
+  ok(/Gwendal/.test(A.$("#fact-notes-liste").textContent) && /Jason/.test(A.$("#fact-notes-liste").textContent), "chaque note montre qui l'a écrite");
+  ok(champ() && champ().tagName === "INPUT" && !!A.$("#fact-notes .fact-notes-saisie button") && /Ajouter/.test(A.$("#fact-notes .fact-notes-saisie button").textContent), "champ de saisie et bouton « ＋ Ajouter »");
+  // champ STATIQUE : factRendre() (rappelée à chaque case cochée) et rafraichirVues() ne le reconstruisent pas
+  const noeud = champ(); noeud.value = "brouillon en cours";
+  A.w.factRendre(); A.w.rafraichirVues();
+  ok(champ() === noeud && champ().value === "brouillon en cours", "le champ garde son texte (et son nœud) après factRendre() et rafraichirVues()");
+  // la liste suit via rafraichirVues (temps réel, autre poste)
+  A.bt("n1").notesLive.push({ texte: "Note venue d'un autre poste", tech: "Gwendal", quand: iso(16, 0) });
+  A.w.rafraichirVues();
+  ok(textes()[0] === "Note venue d'un autre poste" && titreN() === "📝 Notes d'atelier (4)" && champ().value === "brouillon en cours", "rafraichirVues met la liste et le compte à jour sans toucher au champ");
+  champ().value = "";
+
+  // N2. Un bon sans notesLive : lecture seule, aucune mutation
+  const avant = JSON.stringify(A.machines());
+  A.w.factFermer();
+  A.w.factOuvrir("n2"); A.w.factRendre(); A.w.rafraichirVues();
+  ok(JSON.stringify(textes()) === JSON.stringify(["Rien à signaler", "Bougies changées", "Vidange faite"]) && titreN() === "📝 Notes d'atelier (3)", "bon sans notesLive : lignes de notesTech sans leur puce, récent en premier (3)");
+  const n2avant = JSON.stringify(A.bt("n2"));
+  const lu1 = JSON.stringify(A.w.factNotesAtelier(A.bt("n2"))), lu2 = JSON.stringify(A.w.factNotesAtelier(A.bt("n2")));
+  ok(!("notesLive" in A.bt("n2")) && JSON.stringify(A.bt("n2")) === n2avant && lu1 === lu2, "affichage d'un bon sans notesLive : le bon reste sans notesLive, factNotesAtelier est pure");
+  A.w.factFermer();
+  ok(JSON.stringify(A.machines()) === avant, "JSON.stringify(machines) identique après avoir affiché, rafraîchi et fermé un bon sans notesLive");
+  ok(A.w.factNotesAtelier(null).length === 0 && A.w.factNotesAtelier({}).length === 0 && A.w.factNotesAtelier({ notesLive: [] , notesTech: "• x" }).length === 0 && A.w.factNotesAtelier({ notesLive: [null, { texte: "  " }, "ok"] }).map((n) => n.texte).join() === "ok", "factNotesAtelier : bon vide, notesLive vide (pas de repli), entrées bizarres ignorées");
+
+  // N3. Échappement
+  A.w.factOuvrir("n3");
+  ok(!A.$("#fact-notes-liste img") && !A.$("#fact-notes-liste b") && !A.$("#fact-notes-liste i") && /<img src=x onerror=alert\(1\)> & <b>gras<\/b>/.test(A.$("#fact-notes-liste").textContent) && /<i>Pirate<\/i>/.test(A.$("#fact-notes-liste").textContent) && !A.alertes.length, "texte et nom du technicien échappés : <img onerror> reste du texte, aucun élément injecté");
+  A.w.factFermer();
+
+  // N4. Ajout d'une note (bouton, touche Entrée), bon retrouvé par id, sauvegarde, notesTech suit
+  A.w.factOuvrir("n2");
+  champ().value = "  Nouvelle note de Jason  ";
+  A.$("#fact-notes .fact-notes-saisie button").click();
+  await dodo(150);
+  const m2 = A.bt("n2");
+  ok(notesDe("n2").join("|") === "Vidange faite|Bougies changées|Rien à signaler|Nouvelle note de Jason" && m2.notesLive[3].tech === "Jason" && /^\d{4}-\d\d-\d\dT/.test(m2.notesLive[3].quand), "« ＋ Ajouter » : la note (nettoyée) est ajoutée à notesLive avec son auteur et sa date ; les notes du bon imprimé sont reprises");
+  ok(/• Nouvelle note de Jason$/.test(m2.notesTech) && m2.notesTech.split("\n").length === 4, "m.notesTech suit (liveMajNotesTech)");
+  ok(textes()[0] === "Nouvelle note de Jason" && titreN() === "📝 Notes d'atelier (4)" && champ().value === "", "la liste montre la note en premier, le titre compte 4, le champ est vidé");
+  ok(A.S.ecrits(1).some((e) => JSON.stringify(e.vals.donnees).includes("Nouvelle note de Jason")), "la note est enregistrée au serveur (sauvegarder)");
+  ok(!m2.facturation && !m2.factureLe, "ajouter une note ne crée aucune facturation");
+  champ().value = "Par la touche Entrée";
+  champ().dispatchEvent(new A.w.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  ok(notesDe("n2").pop() === "Par la touche Entrée" && champ().value === "", "touche Entrée dans le champ : ajoute la note");
+  const nAvant = notesDe("n2").length;
+  champ().value = "   ";
+  A.$("#fact-notes .fact-notes-saisie button").click();
+  ok(notesDe("n2").length === nAvant && !A.alertes.length, "champ vide ou d'espaces : rien n'est ajouté");
+
+  // N5. Brouillon non vide : ajouté à la fermeture, à « Enregistrer » et à « Facturer avec QuickBooks », jamais par l'appel silencieux
+  champ().value = "Brouillon fermeture";
+  A.w.factFermer();
+  ok(notesDe("n2").pop() === "Brouillon fermeture" && !A.$("#fact-pop").classList.contains("ouvert") && champ().value === "", "brouillon tapé puis Fermer : la note est ajoutée");
+  A.w.factOuvrir("n2");
+  ok(champ().value === "" && textes()[0] === "Brouillon fermeture", "à la réouverture, le champ est vide et la liste à jour");
+  champ().value = "Brouillon enregistrement";
+  A.w.factEnregistrer();
+  ok(notesDe("n2").pop() === "Brouillon enregistrement" && champ().value === "", "brouillon tapé puis 💾 Enregistrer : la note est ajoutée");
+  champ().value = "Brouillon silencieux";
+  const nSil = notesDe("n2").length;
+  A.w.factEnregistrer(true); A.w.factLignesPour(A.bt("n2"));
+  ok(notesDe("n2").length === nSil && champ().value === "Brouillon silencieux", "factEnregistrer(true) et factLignesPour (appels silencieux) n'ajoutent JAMAIS le brouillon");
+  A.appelsQbo.length = 0;
+  await A.w.factQuickBooks(A.$("#fact-btn-qbo"));
+  ok(notesDe("n2").pop() === "Brouillon silencieux" && A.appelsQbo.some((c) => c.action === "facturer"), "brouillon tapé puis 📗 Facturer avec QuickBooks : la note est ajoutée ET la facture part");
+  A.w.factFermer();
+  A.w.factOuvrir("n5"); champ().value = "   "; A.w.factFermer();
+  ok(!("notesLive" in A.bt("n5")), "brouillon d'espaces : rien n'est créé sur le bon");
+
+  // N6. Les notes ne partent JAMAIS dans la facture (charge QuickBooks, mémo, CSV, facturation)
+  A.w.factOuvrir("n1");
+  champ().value = "SECRET-ATELIER-777";
+  A.$("#fact-notes .fact-notes-saisie button").click();
+  A.appelsQbo.length = 0;
+  await A.w.factQuickBooks(A.$("#fact-btn-qbo"));
+  const charge = JSON.stringify(A.appelsQbo);
+  const facturer = A.appelsQbo.find((c) => c.action === "facturer");
+  ok(!!facturer && notesDe("n1").includes("SECRET-ATELIER-777") && !/SECRET-ATELIER|notesLive|notesTech|Notes d'atelier|Remplacé l'anode|Essai à l'eau/.test(charge), "charge QuickBooks (gabarit appelsQbo de test-v159) : aucune note d'atelier ni notesLive / notesTech");
+  ok(!/SECRET-ATELIER|Essai à l'eau/.test(JSON.stringify(A.bt("n1").facturation || {})) && !/SECRET-ATELIER/.test(A.$("#fact-memo").value), "m.facturation et le message au client ne contiennent aucune note");
+  let csv = "";
+  A.set("qboTelechargerCSV", (l, nom) => { csv = JSON.stringify(l) + " " + nom; });
+  A.w.factOuvrir("n1"); A.w.factCSV();
+  ok(csv.length > 20 && !/SECRET-ATELIER|Essai à l'eau|Remplacé l'anode/.test(csv), "CSV de facturation : aucune note d'atelier (fichier produit : " + csv.length + " caractères)");
+  A.w.factFermer();
+
+  // N7. Téléphone : bloc replié s'il y a plus de 3 notes ; l'ouverture n'est jamais empêchée par les notes
+  A.mm.matches = true;
+  A.w.factOuvrir("n4");
+  ok(A.$("#fact-notes").open === false && titreN() === "📝 Notes d'atelier (5)" && A.$("#fact-pop").classList.contains("ouvert"), "téléphone et 5 notes : le bloc est replié (titre visible avec le compte)");
+  A.w.factFermer();
+  A.machines().push(bonN("n6", "BT-606", { notesLive: [1, 2, 3].map((i) => ({ texte: "Trois " + i, tech: "Gwendal", quand: iso(10 + i, 0) })) }));
+  A.w.factOuvrir("n6");
+  ok(A.$("#fact-notes").open === true && titreN() === "📝 Notes d'atelier (3)", "téléphone et exactement 3 notes : bloc ouvert (le repli commence au-dessus de 3)");
+  A.w.factFermer(); A.w.factOuvrir("n1");
+  ok(A.$("#fact-notes").open === false && notesDe("n1").length > 3, "téléphone et " + notesDe("n1").length + " notes (n1) : bloc replié");
+  A.w.factFermer(); A.w.factOuvrir("n3");
+  ok(A.$("#fact-notes").open === true, "téléphone et 1 note : bloc ouvert");
+  A.w.factFermer(); A.mm.matches = false;
+  A.w.factOuvrir("n4");
+  ok(A.$("#fact-notes").open === true, "ordinateur et 5 notes : bloc ouvert");
+  A.w.factFermer();
+  const rendre = A.get("factNotesAtelier"); A.set("factNotesAtelier", () => { throw new Error("panne des notes"); });
+  A.w.factOuvrir("n3");
+  ok(A.$("#fact-pop").classList.contains("ouvert"), "si le rendu des notes plante, la fenêtre de facturation s'ouvre quand même");
+  A.set("factNotesAtelier", rendre); A.w.factFermer();
+
+  // N8. Technicien (non admin) : refus comme avant ; style du bloc
+  connecter(A, "Gwendal");
+  A.w.factOuvrir("n1");
+  ok(!A.$("#fact-pop").classList.contains("ouvert") && A.toasts().some((t) => /réservée à l'administration/.test(t)), "technicien non admin : factOuvrir refuse comme avant");
+  const nn = notesDe("n1").length; champ().value = "Tentative"; ok(A.w.factNoteAjouter() === false && notesDe("n1").length === nn, "technicien : factNoteAjouter() n'ajoute rien");
+  champ().value = "";
+  connecter(A, "Jason");
+  const css = (index.match(/<style id="v178-FAC">([\s\S]*?)<\/style>/) || [, ""])[1];
+  ok(/#fact-notes > summary \{[^}]*display:list-item/.test(css) && /min-height:44px/.test(css) && /#fact-notes \.champ \{[^}]*font-size:16px[^}]*min-width:0/.test(css) && /max-height:240px/.test(css) && /@media \(max-width: 820px\)[^}]*#fact-notes \.fact-notes-liste \{ max-height:none/.test(css), "CSS du lot : summary en display:list-item (la flèche de repli reste visible : block ou flex la font disparaître), 44 px, champ 16 px et min-width:0, liste 240 px (libre sur téléphone)");
+  if (A.w.__NAVIGATEUR) {
+    const cs = A.w.getComputedStyle(A.$("#fact-notes > summary")), cc = A.w.getComputedStyle(champ());
+    ok(cs.display === "list-item" && parseFloat(cs.minHeight) >= 44 && parseFloat(cc.fontSize) === 16, "styles calculés : summary list-item (flèche visible), min-height ≥ 44 px, champ à 16 px");
+  }
+  fermer(A);
+
+  } catch (e) { ok(false, "exception : " + (e && e.stack || e)); }
+  try {
   // ═══════════ G. Aucune trace dans les fichiers servis (hors des deux fonctions de purge) ═══════════
-  const index = fs.readFileSync(FICHIER, "utf8");
   const d = index.indexOf("// v178-FAC-PURGE-DEBUT"), f = index.indexOf("// v178-FAC-PURGE-FIN");
   ok(d > 0 && f > d, "les deux fonctions de purge sont encadrées de marqueurs (v178-FAC-PURGE-DEBUT / -FIN)");
   const horsPurge = d > 0 && f > d ? index.slice(0, d) + index.slice(f) : index;
