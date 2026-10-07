@@ -39,7 +39,9 @@ const EMPX = [{ nom: "Jason", nomFamille: "Blouin", role: "admin", actif: true }
     S.sb.from = (nom) => { const ch = orig(nom); if (nom !== "tableau") return ch;
       const w = new Proxy({}, { get(_, k) { if (k === "then") return (res, rej) => dodo(retardTableau).then(() => ch.then(res, rej)); return (...a) => { const r = ch[k](...a); return r === ch ? w : r; }; } });
       return w; }; }
-  const A = await L.chargerApp({ sb: S.sb, fetch: async (u, init) => /smart-api/.test(u) ? { status: 200, data: { ok: true, sid: "SM-test" } } : null });
+  const rejets = [];   // promesses rejetées non gérées dans l'application (un rendreNote() sur une note fermée lèverait ici)
+  const A = await L.chargerApp({ sb: S.sb, fetch: async (u, init) => /smart-api/.test(u) ? { status: 200, data: { ok: true, sid: "SM-test" } } : null,
+    avant: (w) => w.addEventListener("unhandledrejection", (e) => rejets.push(String((e.reason && e.reason.message) || e.reason))) });
   const { $, $$, w } = A;
   const poser = (m) => { S.db.tableau.find(r => r.id === 1).donnees = cp(m); A.set("machines", cp(m)); };
   const machines = () => A.get("machines");
@@ -252,8 +254,19 @@ const EMPX = [{ nom: "Jason", nomFamille: "Blouin", role: "admin", actif: true }
     btns('[data-bt-note="bt-a"]')[0].click();
     await dodo(30); $("#cn-fermer").click();                       // ✕ pendant l'await
     await dodo(1500); retardTableau = 0;
-    ok(!voileOuvert("comm-voile2") && $("#cn-texte") === zoneAvant, "dialogue fermé pendant l'attente : il ne se rouvre pas");
+    ok(!voileOuvert("comm-voile2") && $("#cn-texte") === zoneAvant && rejets.length === 0, "dialogue fermé pendant l'attente : il ne se rouvre pas (et aucune exception en retour : " + rejets.join(" | ") + ")");
     ok((bon("bt-a").notesLive || []).some(x => /Fermé pendant l'attente/.test(x.texte)), "… mais la note est bien arrivée sur le bon");
+    fermerTout();
+    // une AUTRE note (Julie) s'ouvre pendant l'attente : elle n'est pas écrasée par le redessin de la première
+    poser(MACH()); comms().length = 0;
+    await ouvrirNote(T); $("#cn-texte").value = "Pour Marc pendant que Julie appelle";
+    retardTableau = 250;
+    btns('[data-bt-note="bt-a"]')[0].click();
+    await dodo(30); $("#cn-fermer").click(); await ouvrirNote(TJ);
+    const zoneJulie = $("#cn-texte");
+    await dodo(1500); retardTableau = 0;
+    ok(voileOuvert("comm-voile2") && /Julie Roy/.test(txt("#comm-boite2")) && !/Marc Tremblay/.test(txt("#comm-boite2")) && $("#cn-texte") === zoneJulie && rejets.length === 0, "note d'un autre client ouverte pendant l'attente : son dialogue reste intact (rien n'est redessiné par la note précédente)");
+    ok((bon("bt-a").notesLive || []).some(x => /pendant que Julie appelle/.test(x.texte)), "… et la note de Marc est bien arrivée sur son bon");
     fermerTout();
     // réseau injoignable : la note reste sur l'appareil et le toast le dit
     poser(MACH()); comms().length = 0;
@@ -307,7 +320,13 @@ const EMPX = [{ nom: "Jason", nomFamille: "Blouin", role: "admin", actif: true }
     // popups empilés : le 2e ne recouvre pas le 1er (bouton BT sur le 1er)
     w.__commProposerNote("819-555-0202", "", idPopup()); w.__commProposerNote("819-555-0101", "", idPopup()); await rien();
     { const ps = $$(".comm-propo"); const r1 = ps[0].getBoundingClientRect(), r2 = ps[1].getBoundingClientRect();
-      ok(ps.length === 2 && (r2.bottom <= r1.top + 1 || r1.bottom <= r2.top + 1), "2 popups empilés (le 1er avec le bouton BT) : aucun chevauchement"); }
+      ok(ps.length === 2 && (r2.bottom <= r1.top + 1 || r1.bottom <= r2.top + 1), "2 popups empilés (le 1er avec le bouton BT, plus haut) : aucun chevauchement"); }
+    w.__commProposerNote("819-555-0999", "", idPopup()); await rien();
+    { const rs = $$(".comm-propo").map(e => e.getBoundingClientRect()); let chev = false;
+      for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) if (!(rs[i].bottom <= rs[j].top + 1 || rs[j].bottom <= rs[i].top + 1)) chev = true;
+      ok(rs.length === 3 && !chev && rs.every(r => r.top >= 0), "3 popups empilés : aucun chevauchement, tous dans l'écran"); }
+    $$(".comm-propo")[0].remove(); await dodo(450);
+    { const rs = $$(".comm-propo").map(e => e.getBoundingClientRect()); ok(rs.length === 2 && Math.abs((w.innerHeight - rs[0].bottom) - 18) < 3, "un popup retiré : les autres redescendent (le 1er revient à 18 px du bas)"); }
     fermerTout(); });
 
   // ════════ 8. Fil de Communications ════════
@@ -492,5 +511,6 @@ const EMPX = [{ nom: "Jason", nomFamille: "Blouin", role: "admin", actif: true }
     ok(A.alertes.some(a => /L'envoi a échoué/.test(a)) && S.db.rappels_envoyes.length === nTr2, "envoi en échec : alerte, aucune trace « envoye » écrite");
     fermerTout(); A.alertes.length = 0; });
 
+  ok(rejets.length === 0, "aucune promesse rejetée non gérée (" + rejets.length + ")" + (rejets.length ? " : " + rejets.slice(0, 3).join(" | ") : ""));
   L.fin(A);
 })();

@@ -30621,9 +30621,19 @@ setInterval(() => {
 .comm-propo-bt .btns{flex-wrap:wrap}
 .comm-propo-bt .btns .comm-btn[data-a="bt"]{flex:1 1 100%;min-height:44px}
 .comm-propo-bt + .comm-propo{bottom:236px}
-@media (max-width:520px){.comm-bt-btns{width:100%}.comm-bt-btns .comm-btn{flex:1 1 140px}}
+@media (max-width:520px){.comm-bt-btns{width:100%}.comm-bt-btns .comm-btn{flex:1 1 110px}.comm-bts-fil{max-height:30vh}}
 </style>
-<script id="v178-COM"></script>
+<script id="v178-COM">
+// v178-COM : empile les popups d'appel Linkus selon leur hauteur réelle (le 1er peut porter le bouton « 📋 Ouvrir le BT », donc être plus haut) —
+// sans toucher à proposerNote ni à fermerProposition : on observe seulement l'ajout / le retrait de .comm-propo dans <body>.
+try {
+  const empiler = () => {
+    const l = document.querySelectorAll(".comm-propo"); if (!l.length) return;
+    let bas = 18; l.forEach(e => { e.style.bottom = bas + "px"; bas += e.offsetHeight + 12; });
+  };
+  new MutationObserver(empiler).observe(document.body, { childList: true });
+} catch (_) {}
+</script>
 <style id="v178-PCS"></style>
 <script id="v178-PCS"></script>
 <style id="v178-FAC"></style>
