@@ -11006,6 +11006,90 @@ function joursDepuis(iso) {
   return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
 }
 //@@v178-S0b helpers
+// v178 S0b : date d'arrivée de la machine et temps restant estimé. Fonctions pures (aucune écriture), chacune dans un
+// try/catch qui rend null. Elles vivent ici, dans le script principal, parce que le premier afficher() passe avant
+// le chargement des blocs suivants : elles ne doivent dépendre d'aucune fonction définie plus bas dans le fichier.
+const ARRIVEE_STATUTS = ["avenir", "sansrdv", "attente", "reparation"];   // colonnes où l'on suit « depuis combien de jours la machine est là »
+const ARRIVEE_JOURS_VIEUX = 7;                                              // au-delà de ce nombre de jours, la machine « traîne »
+// Texte d'horodatage lisible (ISO non vide) → millisecondes, sinon null
+function dateLisibleMs(v) {
+  if (typeof v !== "string" || !v) return null;
+  const t = Date.parse(v);
+  return isNaN(t) ? null : t;
+}
+// Quand la machine est arrivée → { date: texte ISO, source: "arriveeLe" | "punch" | "creeLe" } ou null
+function arriveeDe(m) {
+  try {
+    if (!m || ARRIVEE_STATUTS.indexOf(m.statut) < 0) return null;
+    const avenir = m.statut === "avenir";
+    if (avenir && !m.machineArrivee) return null;                              // rendez-vous à venir : la machine n'est pas là
+    if (dateLisibleMs(m.arriveeLe) !== null) return { date: m.arriveeLe, source: "arriveeLe" };
+    let premier = null;                                                        // premier punch = la session commencée le plus tôt
+    (Array.isArray(m.chrono) ? m.chrono : []).forEach(s => {
+      const t = s ? dateLisibleMs(s.debut) : null;
+      if (t !== null && (premier === null || t < premier.t)) premier = { t, iso: s.debut };
+    });
+    if (premier) return { date: premier.iso, source: "punch" };
+    if (avenir) return null;                                                   // jamais creeLe ici : c'est la date de prise du rendez-vous
+    if (dateLisibleMs(m.creeLe) !== null) return { date: m.creeLe, source: "creeLe" };
+    return null;
+  } catch (_) { return null; }
+}
+// Jours CIVILS depuis l'arrivée (hier 23 h 50 → 1 ; aujourd'hui 00 h 10 → 0), ou null. Pas joursDepuis : il compte des tranches de 24 h.
+function arriveeJours(m) {
+  try {
+    const a = arriveeDe(m);
+    if (!a) return null;
+    const jours = Math.round((Date.parse(isoLocal(new Date()) + "T12:00:00Z") - Date.parse(isoLocal(a.date) + "T12:00:00Z")) / 86400000);
+    return isNaN(jours) ? null : Math.max(0, jours);
+  } catch (_) { return null; }
+}
+// Minutes restantes (entier > 0) = estimation m.resteAFaire.minutes − travail punché DEPUIS m.resteAFaire.quand ; null si
+// les travaux sont terminés, s'il n'y a pas d'estimation ou si elle est épuisée. Rien n'est stocké : on recalcule sur m.chrono.
+function resteMinutesDe(m) {
+  try {
+    if (!m || m.travauxTermines) return null;
+    const r = m.resteAFaire;
+    if (!r || typeof r !== "object") return null;
+    const total = typeof r.minutes === "string" ? Number(r.minutes.replace(",", ".")) : r.minutes;
+    if (typeof total !== "number" || !isFinite(total) || total <= 0) return null;
+    const depuis = dateLisibleMs(r.quand);
+    if (depuis === null) return null;                                          // estimation sans date de saisie : inexploitable
+    const maintenant = Date.now();
+    let fait = 0;                                                              // ms travaillées depuis la saisie, pauses retranchées
+    (Array.isArray(m.chrono) ? m.chrono : []).forEach(s => {
+      const d0 = s ? dateLisibleMs(s.debut) : null;
+      if (d0 === null) return;
+      const fin = s.fin ? dateLisibleMs(s.fin) : maintenant;                   // session ouverte : jusqu'à maintenant
+      if (fin === null) return;
+      const a = Math.max(d0, depuis), b = Math.min(fin, maintenant);           // recoupement avec [quand, maintenant]
+      if (b <= a) return;
+      const pauses = [];
+      (Array.isArray(s.pauses) ? s.pauses : []).forEach(p => {
+        const p0 = p ? dateLisibleMs(p.p) : null;
+        if (p0 === null) return;
+        const p1 = dateLisibleMs(p.r);                                         // pause encore ouverte : jusqu'à la fin du recoupement
+        const x = Math.max(p0, a), y = Math.min(p1 === null ? b : p1, b);
+        if (y > x) pauses.push({ p: new Date(x).toISOString(), r: new Date(y).toISOString() });
+      });
+      fait += liveDuree({ debut: new Date(a).toISOString(), fin: new Date(b).toISOString(), pauses });   // même calcul que la minuterie du bon
+    });
+    const reste = Math.round(total - fait / 60000);
+    return reste > 0 ? reste : null;
+  } catch (_) { return null; }
+}
+// 45 → « 45 min », 60 → « 1 h », 90 → « 1 h 30 » (autonome ; même format que le texte de durée de l'ordre de travail)
+function dureeTxtLocale(min) {
+  try {
+    if (min === null || min === undefined || min === "") return null;
+    const n = Math.round(Number(min));
+    if (!isFinite(n) || n < 0) return null;
+    if (n < 60) return n + " min";
+    const reste = n % 60;
+    return Math.floor(n / 60) + " h" + (reste ? " " + String(reste).padStart(2, "0") : "");
+  } catch (_) { return null; }
+}
+// v178 S0b : fin des helpers
 // Toutes les pièces requises sont-elles cochées ? (vrai aussi s'il n'y a aucune pièce)
 function piecesToutesVerifiees(m) {
   if (!m.pieces || m.pieces.length === 0) return true;
