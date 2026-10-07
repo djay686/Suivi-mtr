@@ -6659,17 +6659,41 @@ function calRendreSemaine(joursTravail) {
     if (hr < hFin) lignesFond += `<div class="cal-jour-ligne demi" style="top:${top + CAL_PX_PAR_HEURE/2}px"></div>`;
   }
 
+  // v178-CALB : pour chaque jour, rendez-vous et créneaux retenus placés en voies (côte à côte, jamais l'un sur l'autre)
+  const planJours = {};
+  jours.forEach(d => {
+    const iso = isoLocal(d);
+    const nbT = nbTechniciensDispo(iso);
+    const bons = calEvenementsDuJour(iso).filter(m => m.heure);
+    const retenus = (typeof window.__demCreneauxJour === "function" ? window.__demCreneauxJour(iso) : []);
+    const elems = [];
+    bons.forEach(m => { const deb = hhmmEnDecimal(m.heure), dureeH = (m.dureeEstimee || 60) / 60; elems.push({ m, deb, dureeH, fin: deb + dureeH, minPx: 20 }); });
+    retenus.forEach(r => { const deb = hhmmEnDecimal(r.heure), dureeH = (r.duree || 60) / 60; elems.push({ r, deb, dureeH, fin: deb + dureeH, minPx: 18 }); });
+    let voies = [];
+    if (elems.length) {
+      let ctx = null;
+      const places = (a, b) => { if (!ctx) ctx = rdvCtx(iso, { extra: calRetenusExtra(iso) }); return rdvPlaces(iso, a, b - a, { ctx }).places; };
+      voies = calVoies(elems.map(e => ({ debut: e.deb, fin: Math.max(e.fin, e.deb + e.minPx / CAL_PX_PAR_HEURE) })), nbT, places);
+    }
+    // rendez-vous simultanés (vrais bons seulement, durée réelle) : ⚠️ s'il y en a plus que de techniciens (au moins 1)
+    const reels = elems.filter(e => e.m).map(e => ({ debut: e.deb, fin: e.fin }));
+    const simult = reels.length ? calVoiesMax(calVoies(reels, 0, 0)) : 0;
+    planJours[iso] = { elems, voies, nbT, simult, colMin: Math.max(130, calVoiesMax(voies) * 72) };
+  });
+  const largeurMin = 48 + jours.reduce((s, d) => s + planJours[isoLocal(d)].colMin, 0);   // pixels : la grille défile, pas la page
+
   // Entêtes des jours
   const entetes = jours.map(d => {
     const iso = isoLocal(d);
     const estAuj = memeJour(iso, new Date());
     const ferie = estFerie(iso);
     const nbDispo = nbTechniciensDispo(iso);
+    const surcharge = !ferie && planJours[iso].simult > Math.max(nbDispo, 1);   // v178-CALB : 3 simultanés pour 2 techniciens
     return `<div class="cal-sem-entete${estAuj ? " aujourdhui" : ""}${ferie ? " ferie" : ""}">
       <div class="jnom">${CAL_JOURS_COURT[d.getDay()]}</div>
       <div class="jnum">${d.getDate()}</div>
       ${ferie ? `<div class="cal-ferie-tag">🎉 ${echap(ferie)}</div>`
-              : `<div class="cal-dispo-tag${nbDispo===0?" zero":""}">👷 ${nbDispo}</div>`}
+              : `<div class="cal-dispo-tag${nbDispo===0?" zero":""}${surcharge ? " surcharge" : ""}"${surcharge ? ` title="${planJours[iso].simult} rendez-vous en même temps pour ${nbDispo} technicien(s)"` : ""}>${surcharge ? "⚠️ " : ""}👷 ${nbDispo}</div>`}
     </div>`;
   }).join("");
 
@@ -6681,15 +6705,16 @@ function calRendreSemaine(joursTravail) {
     // Séparer jobs avec heure (positionnés) et sans heure (en haut, empilés)
     const avecHeure = evts.filter(m => m.heure);
     const sansHeure = evts.filter(m => !m.heure);
-    const blocs = avecHeure.map(m => {
-      const deb = hhmmEnDecimal(m.heure);
-      const dureeH = (m.dureeEstimee || 60) / 60;
+    const plan = planJours[iso];   // v178-CALB : voies de chaque bloc (côte à côte)
+    const blocs = plan.elems.map((e, i) => e.m ? [e, i] : null).filter(Boolean).map(([e, i]) => {
+      const m = e.m, deb = e.deb, dureeH = e.dureeH;
       const top = (deb - hDeb) * CAL_PX_PAR_HEURE;
       const hauteur = Math.max(20, dureeH * CAL_PX_PAR_HEURE - 2);
       const finStr = decimalEnHHMM(deb + dureeH);
       const sansSoum = rdvSansSoumission(m);
       const contenu = calBlocContenu(m, hauteur, finStr, String(m.technicien || "").trim(), sansSoum);   // v161 : client + technicien
-      return `<div class="cal-jbloc${sansSoum ? " sans-soum" : ""}${contenu.compact ? " compact" : ""}" style="top:${top}px; height:${hauteur}px; border-left-color:${calCouleurStatut(m.statut)}"
+      const vk = plan.voies[i] || { voie: 0, k: 1 };   // v178-CALB
+      return `<div class="cal-jbloc${sansSoum ? " sans-soum" : ""}${contenu.compact ? " compact" : ""}" style="top:${top}px; height:${hauteur}px;${calVoieStyle(vk.voie, vk.k)} border-left-color:${calCouleurStatut(m.statut)}"${vk.k > 1 ? ` data-voie="${vk.voie}" data-k="${vk.k}"` : ""}
                    title="${calAttrTitre(calEvtInfo(m, finStr))}"
                    draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${m.id}')"
                    onclick="event.stopPropagation(); calOuvrirEvt('${m.id}')">
@@ -6700,13 +6725,14 @@ function calRendreSemaine(joursTravail) {
       ? `<div class="cal-sem-sansheure">${sansHeure.map(m => `<div class="cal-sh-puce${rdvSansSoumission(m) ? " sans-soum" : ""}" style="border-left-color:${calCouleurStatut(m.statut)}" title="${calAttrTitre(calEvtInfo(m))}" onclick="event.stopPropagation(); calOuvrirEvt('${m.id}')">${calPuceContenu(m)}</div>`).join("")}</div>`
       : "";
     // v123 : plages proposées à un client, retenues 1 h → hachurées
-    const retenusHTML = (typeof window.__demCreneauxJour === "function" ? window.__demCreneauxJour(iso) : []).map(r => {
-      const deb = hhmmEnDecimal(r.heure), dureeH = (r.duree || 60) / 60;
+    const retenusHTML = plan.elems.map((e, i) => e.r ? [e, i] : null).filter(Boolean).map(([e, i]) => {
+      const r = e.r, deb = e.deb, dureeH = e.dureeH;
       const top = (deb - hDeb) * CAL_PX_PAR_HEURE, hauteur = Math.max(18, dureeH * CAL_PX_PAR_HEURE - 2);
-      return `<div class="cal-jbloc retenu" style="top:${top}px; height:${hauteur}px" title="Proposé à ${echap(r.client)} — libéré dans ${r.min} min">
+      const vk = plan.voies[i] || { voie: 0, k: 1 };   // v178-CALB : le créneau retenu a sa voie, il n'est plus caché sous un bloc
+      return `<div class="cal-jbloc retenu" style="top:${top}px; height:${hauteur}px;${calVoieStyle(vk.voie, vk.k)}"${vk.k > 1 ? ` data-voie="${vk.voie}" data-k="${vk.k}"` : ""} title="Proposé à ${echap(r.client)} — libéré dans ${r.min} min">
         <div class="jb-h">${r.heure} · proposé</div><div class="jb-nom">${echap(r.client)}</div></div>`;
     }).join("");
-    return `<div class="cal-sem-piste${ferie ? " ferie" : ""}" style="height:${hauteurGrille}px"
+    return `<div class="cal-sem-piste${ferie ? " ferie" : ""}" style="height:${hauteurGrille}px" data-hdeb="${hDeb}"
                  ondragover="event.preventDefault()"
                  ondrop="calDeposerSemaine(event, '${iso}')"
                  ondblclick="calCliquerVide(event, '${iso}', ${hDeb})">
@@ -6718,14 +6744,15 @@ function calRendreSemaine(joursTravail) {
   }).join("");
 
   const html = `
-    <div class="cal-info-avenir">📌 Double-clique une plage horaire pour ajouter un rendez-vous. Glisse un bloc pour le déplacer. Les machines des 3 prochains jours ouvrables remontent dans « À venir ». <span class="cal-legende-sans-soum">🟥 Rouge = rendez-vous sans soumission (règle : chaque rendez-vous doit avoir la sienne).</span></div>
-    <div class="cal-sem-grille" style="grid-template-columns: 48px repeat(${nbJours}, 1fr)">
+    <div class="cal-info-avenir">📌 Double-clique une plage horaire pour ajouter un rendez-vous. Glisse un bloc pour le déplacer. Les rendez-vous simultanés s'affichent côte à côte : une demi-piste libre veut dire qu'il reste une place. Les machines des 3 prochains jours ouvrables remontent dans « À venir ». <span class="cal-legende-sans-soum">🟥 Rouge = rendez-vous sans soumission (règle : chaque rendez-vous doit avoir la sienne).</span></div>
+    <div class="cal-sem-grille" style="grid-template-columns: 48px ${jours.map(d => `minmax(${planJours[isoLocal(d)].colMin}px, 1fr)`).join(" ")}; min-width: ${largeurMin}px">
       <div class="cal-sem-coin"></div>
       ${entetes}
       <div class="cal-jour-heures-col"><div class="cal-jour-heures" style="height:${hauteurGrille}px">${lignesHeures}</div></div>
       ${pistes}
     </div>`;
   document.getElementById("cal-corps").innerHTML = html;
+  calMarquerEtroits();   // v178-CALB : voies de moins de 80 px → classe etroit
 }
 
 // Glisser un bloc dans la vue semaine : change jour ET heure selon la position
@@ -6739,12 +6766,14 @@ function calDeposerSemaine(event, iso) {
   const y = event.clientY - rect.top;
   const jourSem = new Date(iso + "T12:00").getDay();
   const h = rdvConfig.horaire[jourSem];
-  // Recalculer hDeb comme dans le rendu (min de la semaine) — approximé via l'horaire du jour
-  let hDeb = h ? Math.floor(h[0]) : 8;
-  // Ajuster : si la piste a un offset connu, on utilise dataset
+  // v178-CALB : hDeb = celui du rendu (min de la semaine), écrit dans data-hdeb de la piste ; l'horaire du jour déposé
+  // ne donnait pas le même départ (vendredi 8-12 : la grille part de 8, le lundi de 9) → +1 h d'écart à l'enregistrement
+  let hDeb = piste.dataset && piste.dataset.hdeb !== undefined ? Number(piste.dataset.hdeb) : NaN;
+  if (!isFinite(hDeb)) hDeb = h ? Math.floor(h[0]) : 8;   // repli : piste sans data-hdeb
   let heureDec = hDeb + y / CAL_PX_PAR_HEURE;
   heureDec = Math.round(heureDec * 4) / 4; // quart d'heure
   if (heureDec < 0) heureDec = 0;
+  if (!rdvAvertirSurcharge(iso, heureDec, m.dureeEstimee || 60, m.id, m.technicien || "")) return;   // v178-CALB : surcharge → confirmer, refus = aucun déplacement
   m.heure = decimalEnHHMM(heureDec);
   m.echeance = iso;
   sauvegarder();
@@ -6753,11 +6782,12 @@ function calDeposerSemaine(event, iso) {
 
 // Double-clic sur une plage vide → nouveau RDV pré-daté et pré-minuté
 function calCliquerVide(event, iso, hDeb) {
-  if (event.target.closest(".cal-jbloc")) return; // clic sur un bloc existant : ignorer
   const rect = event.currentTarget.getBoundingClientRect();
   const y = event.clientY - rect.top;
   let heureDec = hDeb + y / CAL_PX_PAR_HEURE;
   heureDec = Math.round(heureDec * 4) / 4;
+  // v178-CALB : un double-clic sur un bloc ne fait rien… sauf s'il reste une place à cette heure (2 techniciens, 1 bon à 9:00 → 2e rendez-vous)
+  if (event.target.closest(".cal-jbloc") && !(rdvPlaces(iso, heureDec, 1, { extra: calRetenusExtra(iso) }).places >= 1)) return;
   calNouveauRdv(iso);
   setTimeout(() => { document.getElementById("f-heure").value = decimalEnHHMM(heureDec); }, 30);
 }
@@ -6867,7 +6897,10 @@ function calRendreJour() {
     };
     const jobs = jobsDuJour.filter(parTech);
     const reports = enCoursDuJour.filter(parTech);
-    const blocs = jobs.map(m => {
+    // v178-CALB : rendez-vous simultanés d'une colonne (« — » ou technicien en double réservation) côte à côte
+    const voiesJ = calVoies(jobs.map(m => { const d0 = hhmmEnDecimal(m.heure); return { debut: d0, fin: Math.max(d0 + (m.dureeEstimee || 60) / 60, d0 + 22 / CAL_PX_PAR_HEURE) }; }), 0, 0);
+    const kMaxJ = calVoiesMax(voiesJ);
+    const blocs = jobs.map((m, iJ) => {
       const deb = hhmmEnDecimal(m.heure);
       const dureeH = (m.dureeEstimee || 60) / 60;
       const top = (deb - hDeb) * CAL_PX_PAR_HEURE;
@@ -6877,8 +6910,10 @@ function calRendreJour() {
       // v161 : la colonne dit déjà qui fait la job ; dans « Non assigné », un technicien pas disponible ce jour-là reste affiché
       const techPasDispo = (tech === colNonAssigne && m.technicien) ? `${String(m.technicien).trim()} (pas dispo)` : "";
       const contenu = calBlocContenu(m, hauteur, finStr, techPasDispo, sansSoum);
-      return `<div class="cal-jbloc${sansSoum ? " sans-soum" : ""}${contenu.compact ? " compact" : ""}" style="top:${top}px; height:${hauteur}px; border-left-color:${calCouleurStatut(m.statut)}"
-                   title="${calAttrTitre(calEvtInfo(m, finStr))}"
+      const vkJ = voiesJ[iJ] || { voie: 0, k: 1 };   // v178-CALB
+      const doubleResa = tech !== colNonAssigne && vkJ.voie >= 1;   // 2e voie d'un même technicien = double réservation
+      return `<div class="cal-jbloc${sansSoum ? " sans-soum" : ""}${contenu.compact ? " compact" : ""}${doubleResa ? " double-resa" : ""}" style="top:${top}px; height:${hauteur}px;${calVoieStyle(vkJ.voie, vkJ.k)} border-left-color:${calCouleurStatut(m.statut)}"${vkJ.k > 1 ? ` data-voie="${vkJ.voie}" data-k="${vkJ.k}"` : ""}
+                   title="${calAttrTitre(calEvtInfo(m, finStr) + (doubleResa ? "\n\n⚠️ Double réservation : " + tech + " a déjà un rendez-vous en même temps." : ""))}"
                    draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${m.id}')"
                    onclick="calOuvrirEvt('${m.id}')">
         ${contenu.html}
@@ -6900,12 +6935,12 @@ function calRendreJour() {
       ? `<div class="cal-diner" style="top:${(pd[0]-hDeb)*CAL_PX_PAR_HEURE}px;height:${(pd[1]-pd[0])*CAL_PX_PAR_HEURE}px"
               title="Dîner ${decimalEnHHMM(pd[0])} – ${decimalEnHHMM(pd[1])}"><span>🍽️</span></div>` : "";
 
-    return `<div class="cal-jour-col-tech"
+    return `<div class="cal-jour-col-tech"${kMaxJ > 1 ? ` style="min-width:${Math.max(150, kMaxJ * 72)}px"` : ""}
                  ondragover="event.preventDefault()"
                  ondrop="calDeposerJour(event, '${iso}', '${tech === colNonAssigne ? "" : echap(tech)}')">
       <div class="cal-jour-tech-entete">👷 ${tech === colNonAssigne ? "Non assigné" : echap(tech)}</div>
       ${bandeaux}
-      <div class="cal-jour-piste" style="height:${hauteurGrille}px">
+      <div class="cal-jour-piste" style="height:${hauteurGrille}px" data-hdeb="${hDeb}">
         ${lignesFond}
         ${bandeDiner}
         ${blocs}
@@ -6923,6 +6958,7 @@ function calRendreJour() {
       <div class="cal-jour-pistes">${colonnesHTML}</div>
     </div>`;
   document.getElementById("cal-corps").innerHTML = html;
+  calMarquerEtroits();   // v178-CALB : voies de moins de 80 px → classe etroit
 }
 
 // Déposer un job dans la vue jour : change le technicien et l'heure selon la position verticale
@@ -6938,10 +6974,13 @@ function calDeposerJour(event, iso, tech) {
     const y = event.clientY - rect.top;
     const jourSem = new Date(iso + "T12:00").getDay();
     const h = rdvConfig.horaire[jourSem];
-    const hDeb = h ? Math.floor(h[0]) : 8;
+    // v178-CALB : hDeb lu dans data-hdeb de la piste (le rendu élargit la plage quand un rendez-vous déborde de l'horaire)
+    let hDeb = piste.dataset && piste.dataset.hdeb !== undefined ? Number(piste.dataset.hdeb) : NaN;
+    if (!isFinite(hDeb)) hDeb = h ? Math.floor(h[0]) : 8;
     let heureDec = hDeb + y / CAL_PX_PAR_HEURE;
     // Arrondir au quart d'heure
     heureDec = Math.round(heureDec * 4) / 4;
+    if (!rdvAvertirSurcharge(iso, heureDec, m.dureeEstimee || 60, m.id, tech || "")) return;   // v178-CALB : surcharge → confirmer, refus = aucun déplacement
     m.heure = decimalEnHHMM(heureDec);
   }
   m.echeance = iso;
@@ -30536,8 +30575,114 @@ setInterval(() => {
 <script id="v178-TAB"></script>
 <style id="v178-CALA"></style>
 <script id="v178-CALA"></script>
-<style id="v178-CALB"></style>
-<script id="v178-CALB"></script>
+<style id="v178-CALB">
+/* v178-CALB : A10 affichage — les rendez-vous simultanés se placent côte à côte (voies), demi-piste quand il reste une place */
+/* voie étroite (moins de 80 px, mesurée après le rendu) : seuls l'heure et le client restent */
+.cal-jbloc.etroit { padding-left: 3px; padding-right: 2px; }
+.cal-jbloc.etroit .jb-mach, .cal-jbloc.etroit .jb-tech, .cal-jbloc.etroit .jb-sans-soum { display: none; }
+.cal-jbloc.etroit .jb-h2 { font-size: 0; }
+.cal-jbloc.etroit .jb-h2 .jb-hc { font-size: 10.5px; }
+.cal-jbloc.etroit .jb-cli { font-size: 11px; }
+/* vue Jour : 2e voie d'un même technicien = double réservation, liseré rouge */
+.cal-jbloc.double-resa { border-color: #B02B2B; border-left-color: #B02B2B !important; box-shadow: inset 0 3px 0 #B02B2B, 0 1px 3px rgba(0,0,0,.1); }
+/* entête de jour (Semaine) : plus de rendez-vous simultanés que de techniciens */
+.cal-dispo-tag.surcharge { color: var(--danger); font-weight: 800; }
+/* la grille de la Semaine a sa largeur minimale en pixels : c'est elle qui défile, jamais la page */
+#cal-corps:has(.cal-sem-grille) { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+</style>
+<script id="v178-CALB">
+// ═══ v178-CALB : A10 affichage — rendez-vous simultanés côte à côte, surcharge signalée, dépôt à la bonne heure ═══
+// Consomme le moteur de capacité du lot S0a (rdvCtx, rdvPlaces, techsCapacite) ; n'écrit rien dans machines.
+
+// Placement en voies (agenda classique), PUR et déterministe : aucune écriture, aucune lecture d'horloge.
+//   jobs : [{ debut, fin }] en heures décimales (ou { heure "HH:MM", dureeEstimee en minutes }), dans l'ordre voulu ;
+//   nbTechs : techniciens capables ce jour-là ;
+//   placesRestantes : nombre, ou fonction (debut, fin) → places libres pour la plage de la grappe.
+// Une grappe = suite de rendez-vous qui se chevauchent (un départ à la fin exacte du précédent est une autre grappe) ;
+// k = nombre de voies = rendez-vous simultanés maximum de la grappe ; un rendez-vous seul garde la pleine largeur,
+// SAUF quand il reste une place et qu'il y a 2 techniciens ou plus : k = max(k, min(2, nbTechs)) (demi-piste libre).
+// Pas de voie fixe par technicien. Retourne, dans l'ordre de jobs, [{ voie, k }].
+function calVoies(jobs, nbTechs, placesRestantes) {
+  const liste = Array.isArray(jobs) ? jobs : [];
+  const iv = liste.map((j, i) => {
+    let d = (j && typeof j.debut === "number") ? j.debut : hhmmEnDecimal(String((j && j.heure) || ""));
+    if (!isFinite(d)) d = 0;
+    let f = (j && typeof j.fin === "number") ? j.fin : d + (Number(j && j.dureeEstimee) || 60) / 60;
+    if (!isFinite(f) || f <= d) f = d + 1 / 60;
+    return { i, d, f, v: 0 };
+  });
+  const ordre = iv.slice().sort((a, b) => (a.d - b.d) || (a.i - b.i));
+  const nb = Number(nbTechs) || 0;
+  const res = new Array(liste.length);
+  const clore = (grappe, debut, fin) => {
+    if (!grappe.length) return;
+    const bouts = [];   // fin du dernier rendez-vous de chaque voie
+    grappe.forEach(o => {
+      let v = bouts.findIndex(b => b <= o.d + 1e-9);
+      if (v < 0) { v = bouts.length; bouts.push(o.f); } else bouts[v] = o.f;
+      o.v = v;
+    });
+    let k = bouts.length;
+    if (nb >= 2 && k < Math.min(2, nb)) {
+      let places = 0;
+      try { places = typeof placesRestantes === "function" ? Number(placesRestantes(debut, fin)) : Number(placesRestantes); } catch (_) { places = 0; }
+      if (places >= 1) k = Math.max(k, Math.min(2, nb));
+    }
+    grappe.forEach(o => { res[o.i] = { voie: o.v, k }; });
+  };
+  let grappe = [], gDebut = 0, gFin = -Infinity;
+  ordre.forEach(o => {
+    if (grappe.length && o.d >= gFin - 1e-9) { clore(grappe, gDebut, gFin); grappe = []; gFin = -Infinity; }
+    if (!grappe.length) gDebut = o.d;
+    grappe.push(o); gFin = Math.max(gFin, o.f);
+  });
+  clore(grappe, gDebut, gFin);
+  return res;
+}
+// Voies maximum d'une liste de placements calVoies (1 si vide)
+function calVoiesMax(voies) { return (voies || []).reduce((m, x) => Math.max(m, x ? x.k : 1), 1); }
+// Style inline d'un bloc dans sa voie : k voies égales sur la largeur de la piste (marges de 3 px, 2 px entre les voies) ; k = 1 : rien (pleine largeur du CSS)
+function calVoieStyle(voie, k) {
+  if (!(k > 1)) return "";
+  const w = "((100% - " + (6 + 2 * (k - 1)) + "px) / " + k + ")";
+  return " left: calc(3px + " + w + " * " + voie + " + " + (2 * voie) + "px); width: calc" + w + "; right: auto;";
+}
+// Créneaux retenus des demandes → opt.extra de rdvPlaces / rdvCtx (ils occupent une place le temps de leur retenue)
+function calRetenusExtra(iso) {
+  try {
+    return (typeof window.__demCreneauxJour === "function" ? window.__demCreneauxJour(iso) : [])
+      .map(r => ({ iso, heure: r.heure, duree_min: r.duree || 60 }));
+  } catch (_) { return []; }
+}
+// Après le rendu : une voie de moins de 80 px de large prend la classe « etroit » (masque machine, technicien, sans-soumission).
+// Mesure réelle (la largeur dépend de l'écran et de la rotation) ; un calendrier fermé (largeur 0) n'est pas touché.
+function calMarquerEtroits() {
+  try {
+    document.querySelectorAll("#cal-corps .cal-jbloc").forEach(b => {
+      const larg = b.offsetWidth;
+      if (larg > 0) b.classList.toggle("etroit", larg < 80);
+    });
+  } catch (_) {}
+}
+(function () {
+  try {
+    const c = document.getElementById("cal-corps");
+    if (c && typeof ResizeObserver === "function") new ResizeObserver(() => calMarquerEtroits()).observe(c);
+    else window.addEventListener("resize", () => calMarquerEtroits());
+  } catch (_) {}
+})();
+// Dépôt d'un rendez-vous (Semaine, Jour) : avertit, sans jamais bloquer, quand il n'y aurait plus de place à cette heure.
+// rdvPlaces avec saufId (le bon qu'on déplace ne bloque pas sa propre place) ; renvoie true pour continuer, false si on refuse.
+// tech : technicien de la colonne visée (la capacité se compte sur l'atelier entier, il n'entre pas dans le message).
+function rdvAvertirSurcharge(iso, heureDec, dureeMin, id, tech) {
+  try {
+    if (typeof rdvPlaces !== "function" || !iso || !isFinite(heureDec)) return true;
+    const r = rdvPlaces(iso, heureDec, (Number(dureeMin) || 60) / 60, { saufId: id, extra: calRetenusExtra(iso) });
+    if (r.places >= 1) return true;
+    return !!confirm("⚠️ À " + decimalEnHHMM(heureDec) + " il y aurait " + (r.charge + 1) + " rendez-vous pour " + r.cap + " technicien(s). Placer quand même ?");
+  } catch (_) { return true; }
+}
+</script>
 <style id="v178-CAL9"></style>
 <script id="v178-CAL9"></script>
 <style id="v178-CAL6"></style>
