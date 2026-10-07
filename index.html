@@ -20350,6 +20350,18 @@ function liveAfficherPage() {
   liveTic();
 }
 //@@v178-A3 liveVoir
+// v178-COM : ouvre l'écran du bon SANS punch (ni session, ni changement de statut, ni d'arrivée) — jamais ouvrirLive ni liveConnecter.
+// Ce n'est PAS une lecture seule : « ▶ Ajouter mon temps » reste actif. Appelée par 📞 Communications (note d'appel, fil, popup d'appel).
+function liveVoir(id) {
+  if (typeof droit === "function" && !droit("live")) { refusSection("live"); return false; }
+  if (typeof techPunchRequis === "function" && techPunchRequis()) { techVerrouAvertir(); return false; }
+  const m = machines.find(x => x && String(x.id) === String(id));
+  if (!m) { toastAviser("Ce bon de travail n'existe plus au tableau.", false); return false; }
+  if (typeof fermerMenu === "function") { try { fermerMenu(); } catch (_) {} }
+  liveId = m.id;
+  liveAfficherPage();
+  return true;
+}
 function fermerLive() {
   document.getElementById("live-page").classList.remove("ouvert");
   try { if (document.getElementById("ecran-tech").classList.contains("ouvert")) rendreEcranTech(); } catch (_) {}
@@ -20601,6 +20613,28 @@ function liveSupprimerNote(i) {
   sauvegarder();
 }
 //@@v178-A3 notes
+// v178-COM : ajoute une note d'atelier à un bon (une remarque prise au téléphone). Elle entre dans notesLive / notesTech : on la
+// retrouve donc dans l'écran live, sur la TV du lift, sur le bon imprimé et dans l'assistant. Le bon est retrouvé par id AU MOMENT
+// d'écrire (appliquerLigne1 remplace les objets du tableau quand un autre poste sauvegarde). Renvoie { ok, enAttente, m } ou null.
+async function btAjouterNoteAtelier(id, texte, opts) {
+  opts = opts || {};
+  const brut = String(texte == null ? "" : texte).replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ").replace(/[ \t]{2,}/g, " ").trim().slice(0, 300).trim();
+  if (!brut) return null;
+  try { await relireMachines(); } catch (_) {}   // meilleur effort : repartir de ce que les autres postes ont écrit
+  const m = machines.find(x => x && String(x.id) === String(id));
+  if (!m) { toastAviser("⚠️ Ce bon de travail n'existe plus au tableau — note non ajoutée.", false); return null; }
+  const u = (typeof utilisateurCourant === "function") ? utilisateurCourant() : null;
+  const prefixe = opts.prefixe == null ? "📞 Appel : " : String(opts.prefixe);
+  liveNotes(m).push({ texte: prefixe + brut, tech: u ? u.nom : (opts.tech || ""), quand: new Date().toISOString(), src: "appel" });
+  liveMajNotesTech(m);
+  await sauvegarder();
+  const enAttente = !!ligne1EnAttente;
+  if (opts.silencieux !== true) {
+    if (enAttente) toastAviser("⚠️ Note gardée sur cet appareil : réseau injoignable, elle partira au retour du réseau.", false);
+    else toastAviser("📝 Note d'atelier ajoutée au " + (m.numeroBT || "bon"), true);
+  }
+  return { ok: true, enAttente, m };
+}
 
 // ── Commande de pièces au bureau ────────────────────────────
 function liveCommander() {
@@ -20651,7 +20685,7 @@ function liveRendre() {
 
   // Valeurs à préserver pendant le re-rendu (un autre poste peut sauvegarder)
   const conserver = {};
-  ["live-cmd-desc", "live-cmd-num", "live-cmd-qte", "live-scan-avoir", "live-scan-utilise"].forEach(id => {
+  ["live-cmd-desc", "live-cmd-num", "live-cmd-qte", "live-scan-avoir", "live-scan-utilise", "live-note-champ-haut"].forEach(id => {   // v178-COM : la note en cours de frappe survit à un redessin
     const el = document.getElementById(id); if (el) conserver[id] = el.value;
   });
   const actif = document.activeElement ? document.activeElement.id : "";
@@ -24487,8 +24521,10 @@ async function pushRendre() {
       if (m.heure) heure = m.heure.replace(":", " h ");
     } catch (_) {}
     const client = (m.client || "").trim();
-    return { prenom: client.split(/\s+/)[0] || "", client, date, heure, machine: rapNomMachine(m) || "votre véhicule", shop: RAP_SHOP };
+    return { prenom: client.split(/\s+/)[0] || "", client, date, heure, machine: rapNomMachine(m) || "votre véhicule", shop: RAP_SHOP, adresse: rapAdresse() };   // v178-COM : {adresse}
   }
+  // v178-COM : l'adresse du garage (la même que sur le bon imprimé : ENTREPRISE.lignes[0])
+  function rapAdresse() { try { return (ENTREPRISE.lignes && ENTREPRISE.lignes[0]) || ""; } catch (_) { return ""; } }
   function rapRemplir(g, v) { return String(g || "").replace(/\{(\w+)\}/g, (_, k) => (v[k] != null ? v[k] : "")); }
   function rapDelaiTexte(r) { return r.delai_valeur + " " + (r.delai_unite === "jours" ? (r.delai_valeur > 1 ? "jours" : "jour") : r.delai_unite === "heures" ? (r.delai_valeur > 1 ? "heures" : "heure") : "min") + " avant"; }
 
@@ -24561,6 +24597,15 @@ async function pushRendre() {
 
   // ── popup de confirmation à la prise de RDV ───────────────────────────
   async function rapProposerConfirmation(m) {
+    // v178-COM : une confirmation est déjà partie (texto automatique du serveur, ou envoi manuel) → pas de popup. Seule la ligne « envoye »
+    // compte (jamais « en_cours » ni « erreur » : après un échec, le popup doit pouvoir revenir). Lecture en échec : popup comme avant.
+    try {
+      const s = rapSb();
+      if (s && m && m.id != null) {
+        const { data, error } = await s.from("rappels_envoyes").select("id").eq("bt_id", String(m.id)).eq("type", "confirmation").eq("statut", "envoye").limit(1);
+        if (!error && Array.isArray(data) && data.length) { if (typeof toastAviser === "function") toastAviser("✅ Une confirmation est déjà partie pour ce rendez-vous.", true); return; }
+      }
+    } catch (_) {}
     await rapChargerConfig();
     const conf = rapConfig.find(r => r.type === "confirmation");
     const tel = rapE164(m.tel);
@@ -24661,7 +24706,7 @@ async function pushRendre() {
   function rapRendreReglages(c) {
     const conf = rapConfig.find(r => r.type === "confirmation");
     const rappels = rapConfig.filter(r => r.type === "rappel");
-    let h = `<div class="rap-muted" style="margin-bottom:10px">Variables : <code>{prenom}</code> <code>{client}</code> <code>{date}</code> <code>{heure}</code> <code>{machine}</code> <code>{shop}</code>. Les rappels en <b>jours</b> ne partent qu'entre 8 h et 20 h. Un rappel ne part jamais deux fois pour le même rendez-vous.</div>`;
+    let h = `<div class="rap-muted" style="margin-bottom:10px">Variables : <code>{prenom}</code> <code>{client}</code> <code>{date}</code> <code>{heure}</code> <code>{machine}</code> <code>{shop}</code> <code>{adresse}</code>. Les rappels en <b>jours</b> ne partent qu'entre 8 h et 20 h. Un rappel ne part jamais deux fois pour le même rendez-vous.</div>`;
     h += `<h3 style="margin:8px 0">Confirmation à la prise de rendez-vous</h3>`;
     h += conf ? rapCarteHtml(conf, true) : `<div class="rap-muted">Aucun gabarit de confirmation.</div>`;
     h += `<h3 style="margin:14px 0 8px">Rappels automatiques avant le rendez-vous</h3>`;
@@ -24694,7 +24739,7 @@ async function pushRendre() {
   function rapBrancherCarte(r) {
     const el = document.getElementById("rap-c-" + r.id); if (!el) return;
     const apercu = () => {
-      const ex = { prenom: "Marc", client: "Marc Tremblay", date: "vendredi 12 septembre", heure: "9 h 30", machine: "Ski-Doo Summit 850 2022", shop: RAP_SHOP };
+      const ex = { prenom: "Marc", client: "Marc Tremblay", date: "vendredi 12 septembre", heure: "9 h 30", machine: "Ski-Doo Summit 850 2022", shop: RAP_SHOP, adresse: rapAdresse() };   // v178-COM
       const m = rapRemplir(el.querySelector('[data-k="gabarit"]').value, ex);
       el.querySelector("[data-apercu]").textContent = "Aperçu : " + m + "  (" + m.length + " car.)";
     };
@@ -24728,7 +24773,7 @@ async function pushRendre() {
     for (const m of liste) {
       const v = rapVars(m);
       const env = envoyes.filter(e => e.bt_id === String(m.id));
-      const conf = env.find(e => e.type === "confirmation");
+      const conf = env.find(e => e.type === "confirmation" && e.statut === "envoye") || env.find(e => e.type === "confirmation");   // v178-COM : la ligne « envoye » d'abord (un renvoi réussi efface un ancien échec)
       let badges = conf ? `<span class="rap-badge ${conf.statut === "envoye" ? "ok" : "err"}">Confirmation</span>` : `<span class="rap-badge att">Confirmation —</span>`;
       for (const r of rappels) {
         const e = env.find(x => x.rappel_id === r.id);
@@ -24738,7 +24783,7 @@ async function pushRendre() {
         <td>${rapEch(v.client)}<br><span class="rap-muted">${rapEch(v.machine)} · ${rapEch(m.tel || "sans cellulaire")}</span></td>
         <td>${badges}</td>
         <td style="white-space:nowrap"><label class="rap-muted"><input type="checkbox" data-off="${rapEch(m.id)}" ${m.sansRappels ? "checked" : ""}> Sans rappels</label><br>
-          ${conf ? "" : `<button class="rap-b s" data-conf="${rapEch(m.id)}" style="margin-top:4px">📲 Confirmer</button>`}</td></tr>`;
+          ${conf && conf.statut === "envoye" ? "" : `<button class="rap-b s" data-conf="${rapEch(m.id)}" style="margin-top:4px">📲 ${conf ? "Renvoyer" : "Confirmer"}</button>`}</td></tr>`;   // v178-COM : « Renvoyer » après un échec
     }
     c.innerHTML = h + "</table>";
     c.querySelectorAll("[data-off]").forEach(x => x.onchange = () => { const m = machines.find(y => String(y.id) === x.dataset.off); if (m) { m.sansRappels = x.checked; sauvegarder(); } });
@@ -25695,7 +25740,7 @@ async function pushRendre() {
     const badge = e => e.statut === "saute" ? `<span class="rap-fh-badge att" title="${rfE(e.message || "")}">sauté</span>` : e.statut === "envoye" ? `<span class="rap-fh-badge ok">✓ envoyé</span>` : e.statut === "erreur" ? `<span class="rap-fh-badge err" title="${rfE(e.erreur || "")}">✗ échec</span>` : `<span class="rap-fh-badge att">en cours</span>`;
 
     const lignes = [];
-    const conf = envoyes.find(e => e.type === "confirmation");
+    const conf = envoyes.find(e => e.type === "confirmation" && e.statut === "envoye") || envoyes.find(e => e.type === "confirmation");   // v178-COM : la ligne « envoye » d'abord
     lignes.push(conf
       ? `<div class="rap-fh-ligne"><span class="rap-fh-nom">Confirmation de rendez-vous</span><span class="rap-fh-quand">${rfE(dateHeure(conf))}</span>${badge(conf)}</div>`
       : `<div class="rap-fh-ligne"><span class="rap-fh-nom">Confirmation de rendez-vous</span><span class="rap-fh-badge att">pas envoyée</span></div>`);
@@ -27100,6 +27145,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
         ${d.description ? `<div class="mkt-apercu" style="margin-top:8px">${ech(d.description)}</div>` : ""}
         ${d.note_interne ? `<div class="rap-muted" style="margin-top:6px">⚠️ ${ech(d.note_interne)}</div>` : ""}
         ${d.bt_id ? `<div class="rap-muted" style="margin-top:6px">✅ Bon de travail créé${d.confirme_le ? " le " + new Date(d.confirme_le).toLocaleString("fr-CA") : ""}</div>` : ""}
+        ${d.confirmation_envoyee_le ? `<div class="dem-conf-ok" style="margin-top:4px;color:#166534;font-size:12px">✅ Confirmation envoyée le ${ech(new Date(d.confirmation_envoyee_le).toLocaleString("fr-CA"))}</div>` : ""}
         ${(() => { const mo = demBonManquant(d); return mo ? `<div class="dem-bon-perdu">⚠️ <b>Ce rendez-vous n'est plus au calendrier</b> : son bon de travail a disparu (le ${ech(jolieDate(mo.iso, mo.heure))}).
           <div class="rap-ligne" style="margin-top:6px;flex-wrap:wrap"><button class="rap-b p" id="dem-bon-remettre">↩️ Remettre au calendrier</button>
           <button class="rap-b s" id="dem-bon-ignorer">Annulé ou replacé à la main</button></div></div>` : ""; })()}
@@ -27231,6 +27277,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       confirmee: "Rendez-vous confirmé", autres_choix: "Le client veut d'autres plages", conflit: "Plage déjà prise",
       liberee: "Plage libérée", renseignements: "Renseignements demandés", soumission: "Soumission créée",
       refusee: "Demande refusée", note: "Note", erreur: "Erreur",
+      confirmation_renvoyee: "Confirmation renvoyée par SMS",   // v178-COM
       bt_retabli: "Bon remis au calendrier", bt_ignore: "Bon disparu : rendez-vous annulé ou replacé" };   // v168
     z.innerHTML = `<h4 style="margin:0 0 6px">Historique</h4>` + data.map(j => {
       const det = j.detail && typeof j.detail === "object"
@@ -27619,7 +27666,11 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const quand = jolieDate(moment.iso, moment.heure);
     const defaut = `${SHOP} : bonjour ${prenom}, votre rendez-vous est confirme pour le ${quand} (${machine}). Au plaisir de vous voir!`;
     const msg = sansAccentSms(defaut);
-    if (!confirm(`Envoyer au ${tel} ?\n\n${msg}`)) return;
+    // v178-COM : une confirmation est-elle déjà partie (colonne de la demande, ou ligne « envoye » de rappels_envoyes) ? On le dit avant d'envoyer
+    let dejaLe = d.confirmation_envoyee_le || "";
+    if (!dejaLe && d.bt_id) { try { const s0 = sbOk(); if (s0) { const { data: r0 } = await s0.from("rappels_envoyes").select("envoye_le").eq("bt_id", String(d.bt_id)).eq("type", "confirmation").eq("statut", "envoye").limit(1); if (r0 && r0.length) dejaLe = r0[0].envoye_le || "oui"; } } catch (_) {} }
+    const avert = dejaLe ? `⚠️ Une confirmation est déjà partie${dejaLe !== "oui" && !isNaN(new Date(dejaLe)) ? " le " + new Date(dejaLe).toLocaleString("fr-CA") : ""}. Le client la recevra une 2e fois.\n\n` : "";
+    if (!confirm(`${avert}Envoyer au ${tel} ?\n\n${msg}`)) return;
     try {
       const resp = await fetch(SUPABASE_URL + "/functions/v1/smart-api", {
         method: "POST", headers: await entetes(), body: JSON.stringify({ tel, message: msg }) });
@@ -27628,6 +27679,8 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       const s = sbOk();
       if (s) await s.from("demandes_service").update({ confirmation_envoyee_le: new Date().toISOString() }).eq("id", d.id);
       d.confirmation_envoyee_le = new Date().toISOString();
+      // v178-COM : la trace du texto manuel, comme celle du serveur (la fiche du bon et 🔔 RDV à venir la lisent). Échec = silencieux.
+      try { if (s && d.bt_id) await s.from("rappels_envoyes").insert({ bt_id: String(d.bt_id), rappel_id: null, type: "confirmation", canal: "sms", destinataire: tel10(tel) ? "+1" + tel10(tel) : tel, client: d.nom || "", message: msg, statut: "envoye", twilio_sid: j.sid || j.id || null }); } catch (_) {}
       await journal(d.id, "confirmation_renvoyee", { tel, message: msg, iso: moment.iso, heure: moment.heure });
       if (typeof toastAviser === "function") toastAviser("📲 Confirmation envoyée à " + (d.nom || tel), true);
       demRendre();
@@ -27927,7 +27980,15 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
   }
   const clientParTel = (t) => { const liste = (typeof clients !== "undefined" && Array.isArray(clients)) ? clients : []; const x = tel10(t); return x ? liste.find(c => tel10(c.tel) === x || tel10(c.tel2) === x || tel10(c.cellulaire) === x) : null; };
   const clientParId = (id) => { const liste = (typeof clients !== "undefined" && Array.isArray(clients)) ? clients : []; return id ? liste.find(c => c.id === id) : null; };
-  const machinesEnAtelier = (t) => { const x = tel10(t); if (!x || typeof machines === "undefined") return []; return machines.filter(m => m && m.statut !== "archive" && tel10(m.tel) === x); };
+  // v178-COM (A3) : les bons d'un client (non livrés), ceux qui sont sur place d'abord. surPlace = la machine est au garage : ni en commande
+  // de pièce, ni « à venir » tant qu'elle n'est pas arrivée. machinesEnAtelier = les bons sur place seulement (popup d'appel, pastilles).
+  const surPlace = (m) => !!m && m.statut !== "archive" && m.statut !== "commande" && (m.statut !== "avenir" || !!m.machineArrivee);
+  const btsClient = (t, cl) => {
+    const x = tel10(t); if ((!x && !cl) || typeof machines === "undefined" || !Array.isArray(machines)) return [];
+    return machines.filter(m => m && m.statut !== "archive" && ((x && tel10(m.tel) === x) || (cl && m.clientId && m.clientId === cl.id)))
+      .map((m, i) => ({ m, i, p: surPlace(m) ? 0 : 1 })).sort((a, b) => a.p - b.p || a.i - b.i).map(o => o.m);
+  };
+  const machinesEnAtelier = (t, cl) => btsClient(t, cl).filter(surPlace);
   const aTraiter = (c) => c.statut === "a_traiter" || (c.statut === "rappel" && (!c.rappel_le || new Date(c.rappel_le) <= new Date()));
   const enRappelFutur = (c) => c.statut === "rappel" && c.rappel_le && new Date(c.rappel_le) > new Date();
 
@@ -28140,7 +28201,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       if (m.conversation) extra.push(`⏱ ${Math.round(m.conversation / 60)} min`);
       if (m.sms === "non envoyé" && m.pourquoi) extra.push(`<span class="comm-chip">SMS non envoyé : ${ech(m.pourquoi)}</span>`);
       if (m.erreur) extra.push(`<span class="comm-chip atraiter">${ech(m.erreur)}</span>`);
-      if (c.ref_bt) extra.push(`<span class="comm-chip">BT</span>`);
+      { const bt = machineDeLigne(c); if (bt && droitLive()) extra.push(`<button type="button" class="comm-chip comm-chip-bt" data-bt-ouvrir="${ech(bt.id)}" title="Ouvrir le bon de travail">📋 ${ech(bt.numeroBT || "BT")}</button>`); else if (c.ref_bt) extra.push(`<span class="comm-chip">BT</span>`); }   // v178-COM : pastille cliquable si le bon existe encore
       if (c.ref_soum) extra.push(`<span class="comm-chip">Soumission ${ech(c.ref_soum)}</span>`);
       const acts = [];
       if (c.statut !== "traite") acts.push(`<button data-a="traite" data-id="${c.id}">✓ Traité</button>`);
@@ -28150,10 +28211,10 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       return `<div class="comm-ev ${cls}"><div><div class="bulle"><b>${ci.ico} ${ech(ci.lib)}</b>${c.contenu && c.contenu !== ci.lib ? "\n" + ech(c.contenu) : ""}</div>
         <div class="meta"><span>${quand(c.cree_le)}${c.par ? " · " + ech(c.par) : ""}</span>${stat(c)}${extra.join(" ")}${acts.join("")}</div></div></div>`;
     }).join("");
-    const atelier = f.enAtelier.length ? `<div style="font-size:12px;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:5px 8px;margin-top:4px">🔧 En atelier : ${f.enAtelier.map(m => ech(m.nom || m.modele || "machine") + (m.numeroBT ? " (" + ech(m.numeroBT) + ")" : "")).join(", ")}</div>` : "";
+    const atelier = blocBTs(f.tel, f.client, null, "comm-bts-fil");   // v178-COM : un bloc par bon, avec « Ouvrir le BT » et « Note d'atelier »
     return `
       <div class="comm-fil-tete">
-        <div><button class="comm-btn" id="comm-retour" style="margin-right:6px">←</button><span class="nom">${ech(f.nom || "Inconnu")}</span> <span class="tel">${telJoli(f.tel)}</span>${atelier}</div>
+        <div><button class="comm-btn" id="comm-retour" style="margin-right:6px">←</button><span class="nom">${ech(f.nom || "Inconnu")}</span> <span class="tel">${telJoli(f.tel)}</span></div>
         <div class="btns" style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="comm-btn" data-x="note">📝 Note</button>
           <button class="comm-btn" data-x="rappel">⏰ Rappel</button>
@@ -28164,6 +28225,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
           ${f.items.some(c => c.statut !== "traite") ? `<button class="comm-btn" data-x="tout-traite">✓ Tout traité</button>` : ""}
         </div>
       </div>
+      ${atelier}
       <div class="comm-fil-corps" id="comm-fil-corps">${ev || `<div class="comm-vide">Aucun échange encore.</div>`}</div>
       <div class="comm-repondre"><textarea id="comm-rep-txt" placeholder="Répondre par SMS…"></textarea><button class="comm-btn primaire" id="comm-rep-env">Envoyer</button></div>`;
   }
@@ -28171,7 +28233,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const b = document.getElementById("comm-boite");
     const corps = document.getElementById("comm-fil-corps"); if (corps) corps.scrollTop = corps.scrollHeight;
     b.querySelector("#comm-retour").onclick = () => { commFil = null; commRendre(); };
-    b.querySelectorAll(".comm-ev .meta button").forEach(x => x.onclick = () => commAction(x.dataset.a, Number(x.dataset.id)));
+    b.querySelectorAll(".comm-ev .meta button[data-a]").forEach(x => x.onclick = () => commAction(x.dataset.a, Number(x.dataset.id)));   // v178-COM : [data-a] (la pastille BT a son propre clic)
     b.querySelectorAll(".comm-fil-tete [data-x]").forEach(x => x.onclick = () => {
       const k = x.dataset.x;
       if (k === "note") commNoteAppel(f.tel, { manuel: true });
@@ -28184,6 +28246,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       else if (k === "tout-traite") commToutTraite(f);
     });
     b.querySelector("#comm-rep-env").onclick = () => commEnvoyerSms(f.tel, f.nom, b.querySelector("#comm-rep-txt"));
+    brancherBtFil(b);   // v178-COM
   }
 
   // ── actions ─────────────────────────────────────────────────
@@ -28270,10 +28333,24 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const el = document.createElement("div");
     el.className = "comm-propo";
     el.innerHTML = `<div class="l1">📞 Appel ${nom ? "de <b>" + ech(nom) + "</b>" : "entrant"}</div>
-      <div class="l2">${ech(telJoli(t || tel))}${machinesEnAtelier(t).length ? " · 🔧 machine en atelier" : ""}</div>
+      <div class="l2">${ech(telJoli(t || tel))}${machinesEnAtelier(t, cl).length ? " · 🔧 machine en atelier" : ""}</div>
       <div class="btns"><button class="comm-btn primaire" data-a="oui">📝 Ouvrir la note</button><button class="comm-btn" data-a="non">Non merci</button></div>`;
     el.querySelector('[data-a="oui"]').onclick = () => { fermerProposition(id, true); window.commNoteAppel(t || tel, { auto: true, debut }); };
     el.querySelector('[data-a="non"]').onclick = () => fermerProposition(id, true);
+    // v178-COM : exactement UN bon sur place → « 📋 Ouvrir le BT-xxx ». Le serveur ne journalise que les appels manqués : sans la ligne
+    // « appel répondu » (avec ref_bt) insérée ici, l'appel pris ne laisserait aucune trace.
+    { const bts = machinesEnAtelier(t, cl);
+      if (bts.length === 1 && droitLive()) {
+        const bt = bts[0];
+        el.classList.add("comm-propo-bt");
+        el.querySelector(".btns").insertAdjacentHTML("beforeend", `<button class="comm-btn" data-a="bt">📋 Ouvrir le ${ech(bt.numeroBT || "BT")}</button>`);
+        el.querySelector('[data-a="bt"]').onclick = async function () {
+          if (this.disabled) return; this.disabled = true;   // garde synchrone
+          try { await commInserer({ tel: t, tel_brut: tel || "", canal: "appel_repondu", direction: "in", contenu: "Appel répondu", statut: "traite", ref_bt: String(bt.id), meta: { origine: "linkus", debut: debut || new Date().toISOString() } }); } catch (_) {}
+          fermerProposition(id, true);
+          liveVoir(bt.id);
+        };
+      } }
     document.body.appendChild(el);
     propositions.set(id, { el, minuterie: setTimeout(() => fermerProposition(id, false), 90000) });
     // Onglet caché : une notification du bureau ramène vers l'app
@@ -28300,14 +28377,18 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const ex = opts.existant || null;
     const mach = [];
     if (cl && Array.isArray(cl.machines)) cl.machines.forEach(m => { const n = m.nom || [m.annee, m.marque, m.modele].filter(Boolean).join(" "); if (n && !mach.includes(n)) mach.push(n); });
-    machinesEnAtelier(t).forEach(m => { const n = m.nom || m.modele; if (n && !mach.includes(n)) mach.push(n); });
+    btsClient(t, cl).forEach(m => { const n = m.nom || m.modele; if (n && !mach.includes(n)) mach.push(n); });   // v178-COM : tous les bons non livrés du client (tel ou fiche)
     const exMeta = (ex && ex.meta) || {};
     noteCourante = { id: ex ? ex.id : null, tel: t, telBrut: tel || "", raison: (ex && ex.raison) || "", machine: exMeta.machine || "", suite: exMeta.suite || "",
       texte: ex ? (exMeta.note || "") : "", rappel: ex ? ex.statut === "rappel" : false, rappelQuand: "demain",   // v166 : dans combien de temps
       canal: ex ? ex.canal : (opts.auto ? "appel_repondu" : "note"), nomLibre: "" };
+    // v178-COM : sauverNote repart de l'ancien meta (rien d'effacé) ; btId / noteAtelier = ce que l'appel a déjà mis sur un bon
+    Object.assign(noteCourante, { metaAnc: exMeta, btId: (ex && ex.ref_bt) ? String(ex.ref_bt) : "", noteAtelier: Array.isArray(exMeta.noteAtelier) ? exMeta.noteAtelier.slice() : [] });
     // Appel automatique (Linkus) : la ligne existe dès que ça sonne
     if (!ex && opts.auto && t) {
-      noteCourante.id = await commInserer({ tel: t, tel_brut: tel || "", canal: "appel_repondu", direction: "in", contenu: "Appel répondu", statut: "traite", meta: { origine: "linkus", debut: opts.debut || new Date().toISOString() } });
+      const metaAuto = { origine: "linkus", debut: opts.debut || new Date().toISOString() };   // v178-COM : gardé aux enregistrements suivants
+      noteCourante.id = await commInserer({ tel: t, tel_brut: tel || "", canal: "appel_repondu", direction: "in", contenu: "Appel répondu", statut: "traite", meta: metaAuto });
+      noteCourante.metaAnc = metaAuto;
     }
     rendreNote(cl, mach, opts);
   };
@@ -28354,16 +28435,89 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
   }
   window.commPrendreRdv = commPrendreRdv;
 
+  // ── v178-COM (A3) : bons de travail du client — « 📋 Ouvrir le BT » et « 📝 Note d'atelier » (note d'appel, fil, popup d'appel) ──
+  const droitLive = () => (typeof droit !== "function") || droit("live");
+  const libStatut = (s) => (typeof libelle === "function" ? libelle(s) : (STATUT_LIB[s] || s || ""));
+  const MAX_BT = 5;
+  const noteAContenu = (n) => !!(String(n.texte || "").trim() || n.raison || (n.machine && n.machine !== "__autre") || n.suite);
+  // Le bon (non livré) vers lequel pointe une ligne du fil : ref_bt, sinon meta.machine_id (rappels de la v166)
+  const machineDeLigne = (c) => {
+    if (typeof machines === "undefined" || !Array.isArray(machines)) return null;
+    const ids = [c.ref_bt, (c.meta || {}).machine_id].filter(Boolean).map(String);
+    for (const id of ids) { const m = machines.find(x => x && String(x.id) === id); if (m && m.statut !== "archive") return m; }
+    return null;
+  };
+  function ligneBT(m, fait) {
+    const id = ech(m.id), ico = surPlace(m) ? "🔧" : m.statut === "commande" ? "📦" : "📅";
+    return `<div class="comm-bt${fait ? " fait" : ""}" data-bt="${id}">
+      <div class="comm-bt-info"><span class="comm-bt-ico">${ico}</span> <b>${ech(m.numeroBT || "BT")}</b> ${ech(m.nom || m.modele || "machine")} <span class="comm-chip">${ech(libStatut(m.statut))}</span>${fait ? ` <span class="comm-chip traite">✔ note ajoutée</span>` : ""}</div>
+      <div class="comm-bt-btns">${droitLive() ? `<button type="button" class="comm-btn" data-bt-ouvrir="${id}">📋 Ouvrir le BT</button>` : ""}<button type="button" class="comm-btn" data-bt-note="${id}">📝 Note d'atelier</button></div>
+    </div>`;
+  }
+  function blocBTs(t, cl, faits, cls) {
+    const l = btsClient(t, cl); if (!l.length) return "";
+    return `<div class="comm-bts${cls ? " " + cls : ""}"><div class="comm-bts-titre">🔧 Bons de travail du client</div>${l.slice(0, MAX_BT).map(m => ligneBT(m, faits && faits.has(String(m.id)))).join("")}${l.length > MAX_BT ? `<div class="info">… et ${l.length - MAX_BT} autre(s)</div>` : ""}</div>`;
+  }
+  // Note d'appel : « Ouvrir le BT » garde la note (si elle a du contenu) puis ouvre le bon ; « Note d'atelier » met le texte de la note sur le bon.
+  function brancherBtNote(b, n, lireTexte, rerendre) {
+    b.querySelectorAll("[data-bt-ouvrir]").forEach(x => x.onclick = async () => {
+      if (x.disabled || n.btOccupe) return;
+      n.btOccupe = true; x.disabled = true;   // garde synchrone : un 2e clic n'arrive jamais jusqu'à l'await
+      try {
+        lireTexte();
+        const rap = b.querySelector("#cn-rappel"), qu = b.querySelector("#cn-quand"), ct = b.querySelector("#cn-tel");
+        if (rap) n.rappel = rap.checked; if (qu) n.rappelQuand = qu.value;
+        if (!n.tel && ct) { n.tel = tel10(ct.value); n.telBrut = ct.value; }
+        if (n.tel && noteAContenu(n)) await sauverNote(true);   // rien de saisi : aucune ligne vide dans Communications
+        if (noteCourante === n) commFermerDialogue();           // (une autre note ouverte entre-temps n'est jamais fermée)
+        voile.classList.remove("ouvert");
+        commCharger().then(() => commMajBadge());
+        liveVoir(x.dataset.btOuvrir);
+      } finally { n.btOccupe = false; if (x.isConnected) x.disabled = false; }
+    });
+    b.querySelectorAll("[data-bt-note]").forEach(x => x.onclick = async () => {
+      if (x.disabled || n.btOccupe) return;
+      lireTexte();
+      const texte = String(n.texte || "").trim(), id = x.dataset.btNote;
+      const bon = (typeof machines !== "undefined" && Array.isArray(machines)) ? machines.find(y => y && String(y.id) === id) : null;
+      if (!texte) { toast("⚠️ Écris d'abord la note : c'est ce texte qui ira au bon de travail.", false); const z = b.querySelector("#cn-texte"); if (z) z.focus(); return; }
+      if ((n.noteAtelier || []).some(e => String(e.id) === id && e.texte === texte)) { toast("ℹ️ Cette note est déjà sur le " + ((bon && bon.numeroBT) || "bon") + ".", true); return; }
+      n.btOccupe = true; x.disabled = true;
+      try {
+        const r = await btAjouterNoteAtelier(id, texte);
+        if (!r || noteCourante !== n) return;   // bon disparu, ou dialogue fermé pendant l'attente : on ne le rouvre pas
+        n.btId = id; n.noteAtelier = (n.noteAtelier || []).concat([{ id, texte }]);
+        try { await sauverNote(false); } catch (_) {}
+        if (noteCourante !== n) return;
+        rerendre();
+      } finally { n.btOccupe = false; if (x.isConnected) x.disabled = false; }
+    });
+  }
+  // Fil : mêmes deux boutons par bon (et la pastille « 📋 BT-xxx » d'une ligne) ; la note passe par prompt() — aucune nouvelle ligne,
+  // aucun état de saisie : le temps réel reconstruit tout le fil.
+  function brancherBtFil(b) {
+    b.querySelectorAll(".comm-fil [data-bt-ouvrir]").forEach(x => x.onclick = () => { if (liveVoir(x.dataset.btOuvrir)) voile.classList.remove("ouvert"); });
+    b.querySelectorAll(".comm-fil [data-bt-note]").forEach(x => x.onclick = async () => {
+      if (x.disabled) return;
+      const id = x.dataset.btNote;
+      const bon = (typeof machines !== "undefined" && Array.isArray(machines)) ? machines.find(y => y && String(y.id) === id) : null;
+      const saisie = prompt("📝 Note d'atelier pour le " + ((bon && bon.numeroBT) || "bon") + "\n(elle s'ajoute au bon : écran live, TV du lift, bon imprimé)", "");
+      if (saisie == null || !String(saisie).trim()) return;
+      x.disabled = true;
+      try { await btAjouterNoteAtelier(id, saisie); } finally { if (x.isConnected) x.disabled = false; }
+    });
+  }
+
   function rendreNote(cl, mach, opts) {
     const n = noteCourante;
     const past = (cle, liste) => `<div class="past">${liste.map(([v, lib]) => `<button data-k="${cle}" data-v="${ech(v)}" class="${n[cle] === v ? "on" : ""}">${ech(lib)}</button>`).join("")}</div>`;
-    const enAt = machinesEnAtelier(n.tel);
     const machLibre = n.machine === "__autre" || (n.machine && !mach.includes(n.machine));
     commDialogue(`<div class="comm-note">
       <div class="comm-tete"><h2>📝 Note d'appel</h2><button class="comm-btn" id="cn-fermer">✕</button></div>
       <div class="info"><b>${cl ? ech(cl.nom) : "Client inconnu"}</b> · ${n.tel ? telJoli(n.tel) : `<input type="text" id="cn-tel" placeholder="Numéro" style="border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px">`}
         ${!cl ? `<input type="text" id="cn-nom" placeholder="Nom (pour le carnet)" value="${ech(n.nomLibre)}" style="border:1px solid #cbd5e1;border-radius:6px;padding:4px 6px;margin-left:6px">` : ""}
-        ${enAt.length ? `<div style="color:#166534;margin-top:4px">🔧 En atelier : ${enAt.map(m => ech(m.nom || m.modele) + (m.statut ? " — " + ech(STATUT_LIB[m.statut] || m.statut) : "")).join(", ")}</div>` : ""}</div>
+        </div>
+      ${blocBTs(n.tel, cl, new Set((n.noteAtelier || []).map(e => String(e.id))))}
       <div class="comm-raccourcis"><button class="comm-btn primaire" id="cn-rdv">📅 Prendre un rendez-vous</button><button class="comm-btn" id="cn-soum">🧾 Faire une soumission</button></div>
       ${rendreHistorique(n.tel, cl)}
       <div class="grp"><label>Raison de l'appel</label>${past("raison", Object.entries(RAISONS))}</div>
@@ -28380,6 +28534,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     </div>`);
     const b = document.getElementById("comm-boite2");
     const lireTexte = () => { const z = b.querySelector("#cn-texte"); if (z) n.texte = z.value; };
+    brancherBtNote(b, n, lireTexte, () => rendreNote(cl, mach, opts));   // v178-COM : bloc « Bons de travail du client »
     b.querySelectorAll(".past button").forEach(x => x.onclick = () => {
       const k = x.dataset.k, v = x.dataset.v;
       lireTexte();
@@ -28453,7 +28608,9 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const parts = [];
     if (n.raison) parts.push(RAISONS[n.raison] || n.raison); if (machine) parts.push(machine); if (n.texte) parts.push(n.texte);
     const maj = { raison: n.raison || null, contenu: parts.join(" — ") || (n.canal === "appel_repondu" ? "Appel répondu" : "Note"),
-      meta: { origine: n.canal === "appel_repondu" ? "linkus" : "manuel", machine, suite: n.suite || "", note: n.texte || "" } };
+      meta: { ...(n.metaAnc || {}), origine: n.canal === "appel_repondu" ? "linkus" : "manuel", machine, suite: n.suite || "", note: n.texte || "" } };   // v178-COM : ...metaAnc
+    if (n.noteAtelier && n.noteAtelier.length) maj.meta.noteAtelier = n.noteAtelier;   // v178-COM : notes d'atelier déjà posées sur des bons
+    if (n.btId) maj.ref_bt = String(n.btId);   // v178-COM : la note d'appel pointe le bon
     if (final) {
       if (n.rappel) { maj.statut = "rappel"; maj.rappel_le = (rappelQuand(n.rappelQuand || "demain") || new Date(prochainJourOuvrable9h())).toISOString(); }   // v166 : délai choisi
       else { maj.statut = "traite"; maj.traite_le = new Date().toISOString(); maj.traite_par = parMoi() || "atelier"; }
@@ -28785,6 +28942,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
   }, 600);
   window.__comm = { charger: commCharger, majBadge: commMajBadge, fils, nbATraiter, note: window.commNoteAppel, comms: () => comms,
     rappelQuand, joursOuvrablesPlus, verifierRappels, rappelModifier, rappelAction, rappel: () => rap };   // v166
+  Object.assign(window.__comm, { surPlace, btsClient, machinesEnAtelier, ligneBT, blocBTs, noteCourante: () => noteCourante });   // v178-COM
 })();
 </script>
 <script>
@@ -30447,7 +30605,24 @@ setInterval(() => {
 }, 60000);
 </script>
 <!-- v178 : un bloc <style> et un bloc <script> par lot (CSS et JS neufs de chaque lot ; vides au socle) -->
-<style id="v178-COM"></style>
+<style id="v178-COM">
+/* v178-COM (A3) : « Bons de travail du client » (note d'appel, fil) + bouton BT du popup d'appel Linkus */
+.comm-bts{border:1px solid #bbf7d0;background:#f0fdf4;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;min-width:0}
+.comm-bts-titre{font-size:12px;font-weight:700;color:#166534}
+.comm-bt{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #dcfce7;padding-top:6px}
+.comm-bt:first-of-type{border-top:0;padding-top:0}
+.comm-bt-info{flex:1 1 220px;min-width:0;font-size:14px;color:#111;overflow-wrap:anywhere}
+.comm-bt-btns{display:flex;gap:6px;flex-wrap:wrap}
+.comm-bt-btns .comm-btn{min-height:44px;padding:8px 12px;font-size:14px}
+.comm-bts .info{font-size:12px;color:#475569}
+.comm-bts-fil{flex:none;max-height:34vh;overflow:auto;margin:0 12px 6px;-webkit-overflow-scrolling:touch}
+.comm-fil-corps{min-height:140px}
+.comm-chip-bt{border:1px solid #93c5fd;background:#dbeafe;color:#1e40af;cursor:pointer;font:inherit;font-size:11px;padding:4px 10px}
+.comm-propo-bt .btns{flex-wrap:wrap}
+.comm-propo-bt .btns .comm-btn[data-a="bt"]{flex:1 1 100%;min-height:44px}
+.comm-propo-bt + .comm-propo{bottom:236px}
+@media (max-width:520px){.comm-bt-btns{width:100%}.comm-bt-btns .comm-btn{flex:1 1 140px}}
+</style>
 <script id="v178-COM"></script>
 <style id="v178-PCS"></style>
 <script id="v178-PCS"></script>
