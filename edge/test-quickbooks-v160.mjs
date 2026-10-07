@@ -294,10 +294,10 @@ ok(r.data.action === "maj" && corpsMaj.sparse && corpsMaj.CustomerMemo && corpsM
    "facture de la v159 mise à jour : message et mémo de relevé vidés (plus de BT-093 ni SO-0050)");
 ok(I.Line[0].Description === LM && I.Line[1].SalesItemLineDetail.ItemRef.value === "642", "… et ses lignes refaites : machine en 1re ligne, service Hivernisation");
 // Note écrite à la main dans QuickBooks (pas de l'app) : on n'y touche pas
-Q.Invoice.push({ Id: "4701", SyncToken: "0", DocNumber: "1887", TotalAmt: 100, Balance: 100, PrivateNote: "Payé comptant — voir Léa", Line: [] });
+Q.Invoice.push({ Id: "4701", SyncToken: "0", DocNumber: "1887", TotalAmt: 100, Balance: 100, PrivateNote: "Note interne — voir Léa", Line: [] });
 r = await appel({ action: "facturer", facture: facture({ btId: "bt94", memo: "Bonne saison !", ligneMachine: LM, qbo: { id: "4701", realm: "R1" }, lignes: [{ type: "mo", desc: "Inspection", qte: 1, prix: 105 }] }) });
 corpsMaj = dernierPost("invoice");
-ok(!("PrivateNote" in corpsMaj) && Q.Invoice.find(x => x.Id === "4701").PrivateNote === "Payé comptant — voir Léa" && corpsMaj.CustomerMemo.value === "Bonne saison !",
+ok(!("PrivateNote" in corpsMaj) && Q.Invoice.find(x => x.Id === "4701").PrivateNote === "Note interne — voir Léa" && corpsMaj.CustomerMemo.value === "Bonne saison !",
    "note écrite dans QuickBooks gardée ; message au client = celui de l'admin");
 
 // E) Service Hivernisation désactivé → « Atelier », pas réveillé
