@@ -5,9 +5,10 @@
 #   Exécuteur par défaut : Chromium / Playwright (run-in-chromium.js), sans jsdom.
 #     Avec jsdom installé : RUNNER=node NODE_PATH=/chemin/node_modules outils-v178/run-all.sh
 #   MTR_FAKE_NOW="2026-10-07T10:00:00-04:00" simule un mercredi (test-v168b.js échoue le samedi et le dimanche, ligne 141).
-#   SKIP (regex, défaut test-v171.js) : test-v171.js exige bt089/ et bt089.zip, absents du dépôt.
+#   SKIP (regex, défaut test-v171.js|test-v178-srv.js) : test-v171.js exige bt089/ et bt089.zip, absents du dépôt ;
+#     test-v178-srv.js est un test Node pur (edge) : `node test-v178-srv.js`.
 R=$(cd "$(dirname "$0")" && pwd); cd "$R/.." || exit 2
-INDEX=${1:-./index.html}; MOTIF=${2:-.}; SKIP=${SKIP:-test-v171\.js}
+INDEX=${1:-./index.html}; MOTIF=${2:-.}; SKIP=${SKIP:-test-v171\.js|test-v178-srv\.js}
 RUNNER=${RUNNER:-node $R/run-in-chromium.js}
 export PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-browsers}
 AVANT=$(git status --porcelain 2>/dev/null | md5sum)
