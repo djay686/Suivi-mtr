@@ -129,7 +129,7 @@ const fermee = (tech, debutMs, finMs) => ({ tech: tech || "Gwendal", debut: iso(
   t("12 jours avec date sûre → vieux", () => badgeDe("sansrdv", "E").classList.contains("vieux") && /12 jours/.test(txt(badgeDe("sansrdv", "E"))));
   t("source creeLe → « 🚜 ≈ 12 jours », classe approx, JAMAIS vieux", () => { const b = badgeDe("sansrdv", "F"); return txt(b) === "🚜 ≈ 12 jours" && b.classList.contains("approx") && !b.classList.contains("vieux"); });
   t("source creeLe créé aujourd'hui → « 🚜 ≈ aujourd'hui »", () => txt(badgeDe("sansrdv", "G")) === "🚜 ≈ aujourd'hui");
-  t("source punch (premier punch il y a 9 jours) → date sûre : vieux, « Arrivée depuis 9 jours »", () => { const b = badgeDe("sansrdv", "H"); return txt(b) === "🚜 Arrivée depuis 9 jours" && b.classList.contains("vieux"); });
+  t("punch il y a 9 jours mais bon créé il y a 40 jours → la création du bon prime : « 🚜 ≈ 40 jours », approx, jamais vieux", () => { const b = badgeDe("sansrdv", "H"); return txt(b) === "🚜 ≈ 40 jours" && b.classList.contains("approx") && !b.classList.contains("vieux"); });
   t("« 🚜 Machine sur place » est remplacé par le badge quand une date existe (aucune carte n'a les deux)", () => cartes("sansrdv").every(c => !(c.querySelector(".badge-arrivee") && /Machine sur place/.test(c.textContent))));
   t("carte Sans rendez-vous sans aucune date : « 🚜 Machine sur place » comme avant (creeLe retiré)", () => { mets([bon({ id: "z", nom: "Machine A", statut: "sansrdv", creeLe: undefined })]); const c = carteDe("sansrdv", "A"); return /🚜 Machine sur place/.test(c.textContent) && !c.querySelector(".badge-arrivee"); });
   {

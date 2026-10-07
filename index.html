@@ -6193,7 +6193,10 @@ function arriveeBadgeHTML(m) {
     if (!a || j === null) return "";
     const nj = j === 0 ? "aujourd'hui" : j + " jour" + (j > 1 ? "s" : "");
     const le = new Date(a.date).toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
-    if (a.source === "creeLe") return `<span class="badge badge-arrivee approx" title="Date approximative : le bon a été créé le ${echap(le)}, l'arrivée de la machine n'a pas été notée">🚜 ≈ ${nj}</span>`;
+    if (a.source !== "arriveeLe") {   // v178 (INT) : date approximative (rendez-vous prévu, création du bon ou premier punch) : jamais en rouge
+      const pourquoi = a.source === "rdv" ? "le rendez-vous était prévu le " + echap(le) : a.source === "creeLe" ? "le bon a été créé le " + echap(le) : "premier punch le " + echap(le);
+      return `<span class="badge badge-arrivee approx" title="Date approximative : ${pourquoi}, l'arrivée de la machine n'a pas été notée">🚜 ≈ ${nj}</span>`;
+    }
     return `<span class="badge badge-arrivee${j >= ARRIVEE_JOURS_VIEUX ? " vieux" : ""}" title="Arrivée le ${echap(le)}">🚜 Arrivée ${j === 0 ? nj : "depuis " + nj}</span>`;
   } catch (_) { return ""; }
 }
@@ -11344,9 +11347,13 @@ function arriveeDe(m) {
       const t = s ? dateLisibleMs(s.debut) : null;
       if (t !== null && (premier === null || t < premier.t)) premier = { t, iso: s.debut };
     });
-    if (premier) return { date: premier.iso, source: "punch" };
-    if (avenir) return null;                                                   // jamais creeLe ici : c'est la date de prise du rendez-vous
+    if (avenir) return premier ? { date: premier.iso, source: "punch" } : null;   // jamais creeLe ici : c'est la date de prise du rendez-vous
+    // v178 (INT) : ancien bon sans date d'arrivée notée : le rendez-vous prévu (s'il est passé), sinon la création du bon,
+    // sinon le premier punch. Jamais le punch d'abord : un bon créé il y a 15 jours et punché aujourd'hui serait « arrivé aujourd'hui ».
+    const rdvIso = m.echeance ? String(m.echeance).slice(0, 10) : "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(rdvIso) && dateLisibleMs(rdvIso + "T12:00:00") !== null && rdvIso <= isoLocal(new Date())) return { date: rdvIso + "T12:00:00", source: "rdv" };
     if (dateLisibleMs(m.creeLe) !== null) return { date: m.creeLe, source: "creeLe" };
+    if (premier) return { date: premier.iso, source: "punch" };
     return null;
   } catch (_) { return null; }
 }

@@ -32,5 +32,6 @@ for (const lot of LOTS) region += `<style id="v178-${lot}">${choisis["style:" + 
 fs.writeFileSync("index.html", avant + region + "</body>\n</html>\n");
 const verif = fs.readFileSync("index.html", "utf8");
 if (/^(<<<<<<< |=======$|>>>>>>> )/m.test(verif)) throw new Error("il reste des marqueurs de conflit");
-for (const lot of LOTS) for (const tag of ["style", "script"]) { const n = (verif.match(new RegExp(`<${tag} id="v178-${lot}">`, "g")) || []).length; if (n !== 1) throw new Error(`<${tag} id="v178-${lot}"> apparaît ${n} fois`); }
+// (balises réelles = en début de ligne ; un commentaire d'un lot peut citer sa propre balise)
+for (const lot of LOTS) for (const tag of ["style", "script"]) { const n = (verif.match(new RegExp(`^<${tag} id="v178-${lot}">`, "gm")) || []).length; if (n !== 1) throw new Error(`<${tag} id="v178-${lot}"> apparaît ${n} fois en début de ligne`); }
 console.log("zone des blocs reconstruite ; blocs remplis :", Object.keys(choisis).filter((k) => choisis[k].trim()).join(", "));

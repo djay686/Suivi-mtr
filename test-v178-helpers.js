@@ -44,15 +44,18 @@ const t = (msg, f) => { let r; try { r = f(); } catch (e) { ok(false, msg + " �
   t("sansrdv sans arriveeLe ni punch → source creeLe, date = creeLe", () => { const c = iso(-3 * JOUR); const r = arrDe(bon({ statut: "sansrdv", creeLe: c })); return r && r.source === "creeLe" && r.date === c; });
   t("sansrdv avec arriveeLe (et creeLe, et un punch) → arriveeLe l'emporte", () => src(bon({ statut: "sansrdv", arriveeLe: iso(-JOUR), chrono: [punch(-2 * H, -H)] })) === "arriveeLe");
   t("attente : arriveeLe", () => src(bon({ statut: "attente", arriveeLe: iso(-JOUR) })) === "arriveeLe");
-  t("attente : sans arriveeLe, un punch → punch", () => src(bon({ statut: "attente", chrono: [punch(-2 * H, -H)] })) === "punch");
+  t("attente : sans arriveeLe, un punch mais un creeLe → creeLe (le punch ne remet pas le compteur à zéro)", () => src(bon({ statut: "attente", chrono: [punch(-2 * H, -H)] })) === "creeLe");
+  t("attente : sans arriveeLe ni creeLe, un punch → punch", () => src({ id: "p", statut: "attente", chrono: [punch(-2 * H, -H)] }) === "punch");
+  t("attente : rendez-vous prévu hier (passé) → source rdv, date = ce jour à midi", () => { const r = arrDe(bon({ statut: "attente", echeance: iso(-JOUR).slice(0, 10), chrono: [punch(-2 * H, -H)] })); return !!r && r.source === "rdv" && r.date.slice(0, 10) === iso(-JOUR).slice(0, 10); });
+  t("attente : rendez-vous prévu demain (futur) → ignoré, creeLe", () => src(bon({ statut: "attente", echeance: iso(JOUR).slice(0, 10) })) === "creeLe");
   t("attente : ni l'un ni l'autre → creeLe", () => src(bon({ statut: "attente" })) === "creeLe");
-  t("reparation avec punch et sans arriveeLe → source punch (le punch passe avant creeLe)", () => src(bon({ statut: "reparation", chrono: [punch(-2 * H, -H)] })) === "punch");
+  t("reparation avec punch et sans arriveeLe → source creeLe (la création du bon passe avant le punch)", () => src(bon({ statut: "reparation", chrono: [punch(-2 * H, -H)] })) === "creeLe");
   t("reparation avec arriveeLe → arriveeLe", () => src(bon({ statut: "reparation", arriveeLe: iso(-4 * JOUR) })) === "arriveeLe");
   t("reparation sans arriveeLe, sans punch → creeLe", () => src(bon({ statut: "reparation" })) === "creeLe");
   t("reparation sans aucune source (ni creeLe) → null", () => arrDe({ id: "x", statut: "reparation" }) === null);
   t("le premier punch est le plus ancien, quel que soit l'ordre du tableau", () => {
     const vieux = iso(-5 * JOUR);
-    const r = arrDe(bon({ statut: "reparation", chrono: [punch(-2 * JOUR, -2 * JOUR + H), { tech: "A", debut: vieux, fin: iso(-5 * JOUR + H), pauses: [] }, punch(-3 * JOUR, -3 * JOUR + H)] }));
+    const r = arrDe({ id: "b1", statut: "reparation", chrono: [punch(-2 * JOUR, -2 * JOUR + H), { tech: "A", debut: vieux, fin: iso(-5 * JOUR + H), pauses: [] }, punch(-3 * JOUR, -3 * JOUR + H)] });
     return r && r.source === "punch" && r.date === vieux;
   });
   t("le premier punch se compare en temps réel, pas en texte (deux fuseaux horaires)", () => {
@@ -65,7 +68,7 @@ const t = (msg, f) => { let r; try { r = f(); } catch (e) { ok(false, msg + " �
   console.log("— arriveeDe : dates invalides, chrono absent, bon type serveur");
   t("arriveeLe illisible (« pas une date », vide, nombre, objet) : ignorée, on retombe sur creeLe", () => ["pas une date", "", 12345, {}, "2026-13-45"].every(v => { const r = arrDe(bon({ statut: "sansrdv", arriveeLe: v })); return r && r.source === "creeLe"; }));
   t("toutes les dates illisibles → null, sans exception", () => arrDe({ id: "x", statut: "sansrdv", arriveeLe: "bidon", creeLe: "bidon", chrono: [{ debut: "bidon" }] }) === null && arrDe({ id: "x", statut: "reparation", arriveeLe: "bidon", creeLe: "bidon", chrono: [{ debut: "bidon" }] }) === null);
-  t("un punch à date illisible est ignoré, le suivant sert", () => { const bon1 = arrDe(bon({ statut: "reparation", chrono: [{ tech: "A", debut: "bidon" }, punch(-3 * H, -2 * H)] })); return bon1 && bon1.source === "punch"; });
+  t("un punch à date illisible est ignoré, le suivant sert", () => { const bon1 = arrDe({ id: "b1", statut: "reparation", chrono: [{ tech: "A", debut: "bidon" }, punch(-3 * H, -2 * H)] }); return bon1 && bon1.source === "punch"; });
   t("chrono contenant null / texte / nombre / objet vide → ignorés (repli sur creeLe)", () => src(bon({ statut: "reparation", chrono: [null, undefined, "x", 5, {}] })) === "creeLe");
   t("chrono absent, null, objet ou texte → pas d'exception, repli sur creeLe", () => [undefined, null, {}, "abc", 7].every(c => src(bon({ statut: "reparation", chrono: c })) === "creeLe"));
   t("avenir avec machineArrivee et chrono absent → null, sans exception", () => arrDe(bon({ statut: "avenir", machineArrivee: true, chrono: undefined })) === null);
@@ -81,7 +84,7 @@ const t = (msg, f) => { let r; try { r = f(); } catch (e) { ok(false, msg + " �
   t("arrivée hier à 00 h 05 → 1 ; avant-hier à 23 h 59 → 2 ; il y a 10 jours à 08 h → 10", () => arrJ(bon({ arriveeLe: local(-1, 0, 5) })) === 1 && arrJ(bon({ arriveeLe: local(-2, 23, 59) })) === 2 && arrJ(bon({ arriveeLe: local(-10, 8, 0) })) === 10);
   t("arrivée il y a 4 jours à 23 h 59 → 4 (jamais 3 : l'heure du jour ne compte pas)", () => arrJ(bon({ arriveeLe: local(-4, 23, 59) })) === 4 && arrJ(bon({ arriveeLe: local(-4, 0, 1) })) === 4);
   t("arrivée dans le futur (horloge décalée) → plancher à 0", () => arrJ(bon({ arriveeLe: local(2, 9, 0) })) === 0);
-  t("la date de repli compte aussi : sansrdv créé il y a 3 jours → 3 ; punch d'il y a 2 jours → 2", () => arrJ(bon({ statut: "sansrdv", creeLe: local(-3, 14, 0) })) === 3 && arrJ(bon({ statut: "reparation", chrono: [{ tech: "A", debut: local(-2, 9, 0), fin: local(-2, 10, 0), pauses: [] }] })) === 2);
+  t("la date de repli compte aussi : sansrdv créé il y a 3 jours → 3 ; sans creeLe, punch d'il y a 2 jours → 2", () => arrJ(bon({ statut: "sansrdv", creeLe: local(-3, 14, 0) })) === 3 && arrJ({ id: "x", statut: "reparation", chrono: [{ tech: "A", debut: local(-2, 9, 0), fin: local(-2, 10, 0), pauses: [] }] }) === 2);
   t("pas d'arrivée connue → null (avenir sans machineArrivee, statut archive, rien, date illisible, machine absente)", () => arrJ(serveur()) === null && arrJ(bon({ statut: "archive", arriveeLe: iso(-JOUR) })) === null && arrJ({ id: "x", statut: "reparation" }) === null && arrJ({ id: "x", statut: "reparation", arriveeLe: "bidon" }) === null && A.w.arriveeJours(null) === null);
   t("un nombre entier, jamais décimal ni négatif", () => { const j = arrJ(bon({ arriveeLe: iso(-36 * H) })); return Number.isInteger(j) && j >= 0; });
   t("le jour civil ne dépend pas de joursDepuis (23 h 50 hier : joursDepuis dit 0, arriveeJours dit 1) quand il est passé 00 h 10 et avant 23 h 50", () => {

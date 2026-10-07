@@ -245,7 +245,7 @@ const principal = async () => {
     M({ id: "tl1", numeroBT: "BT-210", statut: "reparation", arriveeLe: iso(-5 * JOUR), chrono: [{ tech: "Gwendal", debut: iso(-1 * H), fin: null, pauses: [], live: true }] }),
     M({ id: "tr1", numeroBT: "BT-211", statut: "reparation", arriveeLe: iso(-10 * JOUR) }),
     M({ id: "tr2", numeroBT: "BT-212", statut: "reparation", arriveeLe: iso(-2 * JOUR) }),
-    M({ id: "tr3", numeroBT: "BT-213", statut: "reparation", creeLe: iso(-1 * JOUR), chrono: [{ tech: "Arno", debut: iso(-15 * JOUR), fin: iso(-15 * JOUR + H), pauses: [] }] }),   // arrivée = premier punch (-15 j), pas creeLe
+    M({ id: "tr3", numeroBT: "BT-213", statut: "reparation", creeLe: undefined, chrono: [{ tech: "Arno", debut: iso(-15 * JOUR), fin: iso(-15 * JOUR + H), pauses: [] }] }),   // v178 INT : sans creeLe, le premier punch sert   // arrivée = premier punch (-15 j), pas creeLe
     M({ id: "ta1", numeroBT: "BT-214", statut: "attente", arriveeLe: iso(-3 * JOUR) }),
     M({ id: "ta2", numeroBT: "BT-215", statut: "attente", arriveeLe: iso(-8 * JOUR) }),
     M({ id: "ts1", numeroBT: "BT-261", statut: "sansrdv", creeLe: CREE_S }),
