@@ -7279,6 +7279,9 @@ function genererSuggestionsRdv() {
   const tampon = (rdvConfig.tampon || 0) / 60;
   const depart = document.getElementById("rdv-depart").value || isoLocal(new Date());
   const zone = document.getElementById("rdv-suggestions");
+  let typeMachine = ""; try { typeMachine = lireGrilleMachineRdv().type || ""; } catch (_) {}   // v178-CALA : type de machine lu une fois (compétences)
+  const besoin = 1 + rdvMachinesExtra.length;   // v178-CALA : une place (un technicien) par machine du même rendez-vous
+  let joursOuverts = 0, joursSansTech = 0;   // v178-CALA : pour dire « aucun technicien » plutôt que « aucun créneau »
 
   const suggestions = [];
   let d = new Date(depart + "T12:00");
@@ -7291,15 +7294,18 @@ function genererSuggestionsRdv() {
       const iso = isoLocal(d);
       const [ouvre, ferme] = h;
       const occupe = rdvOccupationJour(iso);
+      const ctx = CAPACITE_MULTI_TECHS ? rdvCtx(iso, { typeMachine }) : null;   // v178-CALA : techniciens et rendez-vous du jour, calculés une fois
+      if (ctx) { joursOuverts++; if (!ctx.techs.length) joursSansTech++; }   // v178-CALA
       // Parcourir la journée par pas de 15 min
       let t = ouvre;
       while (t + dureeH <= ferme + 0.001) {
         const finCreneau = t + dureeH;
         // Vérifier qu'aucun rdv existant ne chevauche [t - tampon, finCreneau + tampon]
-        const libre = occupe.every(([od, of]) =>
+        const pl = ctx ? rdvPlaces(iso, t, dureeH, { typeMachine, ctx }) : null;   // v178-CALA : places = techniciens capables − rendez-vous qui chevauchent (tampon compris ; pas de dîner bloquant)
+        const libre = pl ? pl.places >= besoin : occupe.every(([od, of]) =>   // v178-CALA : sans CAPACITE_MULTI_TECHS, test de la v177
           finCreneau + tampon <= od || t >= of + tampon);
         if (libre) {
-          suggestions.push({ iso, debut: t, fin: finCreneau, date: new Date(d) });
+          suggestions.push({ iso, debut: t, fin: finCreneau, date: new Date(d), places: pl ? pl.places : 1, libres: pl ? pl.libres : [] });   // v178-CALA
           break; // un seul créneau (le plus tôt) par jour pour varier les jours
         }
         t += 0.25;
@@ -7310,7 +7316,8 @@ function genererSuggestionsRdv() {
   }
 
   if (!suggestions.length) {
-    zone.innerHTML = `<div class="rdv-sugg-vide">Aucun créneau trouvé dans les 6 prochaines semaines avec ces paramètres. Essaie une durée plus courte ou ajuste les heures dans Options.</div>`;
+    if (joursOuverts && joursSansTech === joursOuverts) { zone.innerHTML = `<div class="rdv-sugg-vide">Aucun technicien disponible dans les 6 prochaines semaines. Vérifie l'horaire, les vacances et les disponibilités des employés.</div>`; return; }   // v178-CALA
+    zone.innerHTML = `<div class="rdv-sugg-vide">Aucun créneau trouvé dans les 6 prochaines semaines avec ces paramètres. Essaie une durée plus courte ou ajuste les heures dans Options.${joursSansTech ? ` (${joursSansTech} jour${joursSansTech > 1 ? "s" : ""} ouvert${joursSansTech > 1 ? "s" : ""} sans technicien disponible.)` : ""}${besoin > 1 ? ` Il faut ${besoin} techniciens libres en même temps pour ${besoin} machines.` : ""}</div>`;   // v178-CALA
     return;
   }
   const fmtH = (dec) => {
@@ -7323,7 +7330,7 @@ function genererSuggestionsRdv() {
       return `<div class="rdv-creneau">
         <div class="cr-info">
           <div><span class="cr-jour">${nomJour}</span> · <span class="cr-heure">${fmtH(s.debut)} – ${fmtH(s.fin)}</span></div>
-          <div class="cr-sous">Durée ${fmtH(s.fin - s.debut).replace("h","h ")} · ${rdvConfig.tampon} min de battement</div>
+          <div class="cr-sous">Durée ${fmtH(s.fin - s.debut).replace("h","h ")} · ${rdvConfig.tampon} min de battement${/* v178-CALA : places restantes et techniciens libres */ s.places > 1 ? ` · ${s.places} places · ${s.libres.map(n => echap(n)).join(", ")}` : ""}</div>
         </div>
         <button class="btn-principal" onclick="confirmerRdv('${s.iso}', ${s.debut})">Réserver</button>
       </div>`;
@@ -7352,12 +7359,15 @@ function confirmerRdv(iso, heureDecimale) {
   const typeObj = TRAVAUX_TYPES.find(t => t.id === typeId);
   const travaux = rdvTravauxTexte();   // v172 : type (ou précisions) + détails
   const duree = Number(document.getElementById("rdv-duree").value);
+  // v178-CALA : la place a pu être prise depuis la proposition (autre poste, rendez-vous ajouté) : on avertit, jamais de blocage
+  if (CAPACITE_MULTI_TECHS && rdvPlaces(iso, heureDecimale, (duree || 60) / 60, { typeMachine: infosM.type }).places < 1
+      && !confirm(`⚠️ À ${decimalEnHHMM(heureDecimale)} il n'y a plus de technicien libre. Réserver quand même ?`)) return;   // v178-CALA
 
   // Auto-assignation : choisir le meilleur technicien compétent et disponible ce jour-là
   let technicienAssigne = "";
   const autoAssign = document.getElementById("rdv-auto-assign") && document.getElementById("rdv-auto-assign").checked;
   if (autoAssign) {
-    technicienAssigne = choisirTechnicien(iso, infosM.type);
+    technicienAssigne = choisirTechnicien(iso, infosM.type, heureDecimale, duree);   // v178-CALA : un technicien LIBRE à cette heure
   }
 
   // Créer la machine au statut "à venir"
@@ -7413,12 +7423,15 @@ function confirmerRdv(iso, heureDecimale) {
   if (soumRdvLiee) soumAppliquerSurRdv(nouvelle);
 
   // Autres machines du même rendez-vous : un bon de travail chacune, même client, même heure
+  const soeursTech = [];   // v178-CALA : technicien de chaque machine de plus (message de confirmation)
   if (rdvMachinesExtra.length) {
     nouvelle.rdvGroupe = nouvelle.rdvGroupe || "grp-" + genId();
+    if (CAPACITE_MULTI_TECHS) machines.unshift(nouvelle);   // v178-CALA : la 1re machine est déjà au calendrier (et épingle son technicien) quand on choisit celui des suivantes
     rdvMachinesExtra.forEach(x => {
       const soeur = { ...nouvelle, id: genId(), nom: x.nom, type: x.type, marque: x.marque, modele: x.modele, modeleId: x.modeleId || "", annee: x.annee,
         reference: x.serie || "", descriptionMachine: x.description || "", numModele: x.numModele || "", pieces: [], soumissionId: undefined, machineClientId: undefined, rdvGroupe: nouvelle.rdvGroupe };
       delete soeur.soumissionId; delete soeur.machineClientId;
+      if (CAPACITE_MULTI_TECHS) { soeur.technicien = ""; if (autoAssign) soeur.technicien = choisirTechnicien(iso, x.type, heureDecimale, duree); soeursTech.push({ nom: x.nom, tech: soeur.technicien }); }   // v178-CALA : jamais hérité de la 1re machine ; un technicien encore LIBRE (les bons précédents sont déjà dans machines), sinon vide
       const c = clients.find(k => k.id === nouvelle.clientId);
       if (c) { const mid = "mc-" + genId(); if (!c.machines) c.machines = []; c.machines.push({ id: mid, nom: x.nom, marque: x.marque, modele: x.modele, modeleId: x.modeleId || "", type: x.type, annee: x.annee, serie: x.serie || "" }); soeur.machineClientId = mid; }
       machines.unshift(soeur);
@@ -7426,6 +7439,7 @@ function confirmerRdv(iso, heureDecimale) {
     if (nouvelle.clientId) sauverClients();
     rdvMachinesExtra = []; rdvRendreExtra();
   }
+  { const i = machines.indexOf(nouvelle); if (i >= 0) machines.splice(i, 1); }   // v178-CALA : déjà ajoutée avant ses sœurs → remise en tête (même ordre qu'avant)
   machines.unshift(nouvelle);
   sauvegarder();
   fermerAppelRdv();
@@ -7436,10 +7450,11 @@ function confirmerRdv(iso, heureDecimale) {
   const ligneTech = technicienAssigne
     ? `\n👷 Assigné à : ${technicienAssigne}`
     : (autoAssign ? `\n⚠️ Aucun technicien compétent disponible — à assigner manuellement` : "");
+  const ligneSoeurs = autoAssign ? soeursTech.map(s => s.tech ? `\n👷 ${s.nom} : ${s.tech}` : `\n⚠️ ${s.nom} : aucun autre technicien libre — à assigner manuellement`).join("") : "";   // v178-CALA
   const ligneSoum = choixSoum && choixSoum !== "__nouvelle__"
     ? `\n🧾 Soumission ${((soumissions||[]).find(x=>x.id===choixSoum)||{}).numero || ""} rattachée — pièces et travaux prêts pour le bon de travail`
     : "";
-  alert(`✅ Rendez-vous confirmé\n\n${nom || infosM.nom} — ${quand} à ${decimalEnHHMM(heureDecimale)}\n${travaux} (${duree} min)${ligneTech}${ligneSoum}`);
+  alert(`✅ Rendez-vous confirmé\n\n${nom || infosM.nom} — ${quand} à ${decimalEnHHMM(heureDecimale)}\n${travaux} (${duree} min)${ligneTech}${ligneSoeurs}${ligneSoum}`);   // v178-CALA : + ligneSoeurs
 
   // Nouvelle soumission demandée : on l'ouvre pré-remplie et déjà rattachée au bon de travail.
   if (ouvrirNouvelleSoum) {
@@ -7467,10 +7482,16 @@ function confirmerRdv(iso, heureDecimale) {
 
 // Choisit le meilleur technicien pour un jour + type de machine.
 // Critères : disponible ce jour, compétent pour le type, puis le moins chargé (équilibrage).
-function choisirTechnicien(iso, typeMachine) {
-  let candidats = techniciensDisponibles(iso, typeMachine);
+// v178-CALA : avec l'heure (et la durée en minutes), seulement les techniciens LIBRES à ce moment-là (capables, qui couvrent
+//             la plage, pas épinglés sur un rendez-vous qui chevauche) : deux machines à la même heure n'ont jamais le même.
+//             Sans heure (ancien appel) ou sans CAPACITE_MULTI_TECHS : comportement de la v177.
+function choisirTechnicien(iso, typeMachine, heureDec, dureeMin) {
+  const hDec = (typeof heureDec === "string" && heureDec.includes(":")) ? hhmmEnDecimal(heureDec) : Number(heureDec);   // v178-CALA
+  const aLHeure = CAPACITE_MULTI_TECHS && heureDec != null && heureDec !== "" && isFinite(hDec);   // v178-CALA
+  const libresA = (type) => rdvPlaces(iso, hDec, (Number(dureeMin) || 60) / 60, { typeMachine: type }).libres.map(nom => ({ nom }));   // v178-CALA
+  let candidats = aLHeure ? libresA(typeMachine) : techniciensDisponibles(iso, typeMachine);   // v178-CALA
   // Si personne de compétent, élargir à tous les dispos du jour (sans filtre compétence)
-  if (!candidats.length) candidats = techniciensDisponibles(iso);
+  if (!candidats.length) candidats = aLHeure ? (typeMachine ? libresA("") : []) : techniciensDisponibles(iso);   // v178-CALA : repli parmi les libres, jamais un technicien déjà pris
   if (!candidats.length) return "";
   // Compter la charge (nombre de jobs déjà assignés ce jour-là) pour équilibrer
   const charge = {};
@@ -26859,12 +26880,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
   // Techniciens présents un jour donné (réutilise les règles de l'app)
   function demTechs(iso, typeMachine) {
     try {
-      if (typeof techniciensDisponibles === "function") {
-        return techniciensDisponibles(iso, typeMachine)
-          .filter(e => ROLES_CAPACITE.includes(e.role))
-          .map(e => { const h = (typeof empHeuresJour === "function") ? empHeuresJour(e, iso) : null; return h ? { nom: e.nom, debut: h[0], fin: h[1] } : null; })
-          .filter(Boolean);
-      }
+      if (typeof techsCapacite === "function") return techsCapacite(iso, typeMachine);   // v178-CALA : moteur commun (rôle lu par roleDe : sans rôle = technicien ; tâche et réception exclues ; plus de e.role brut)
     } catch (_) {}
     const h = (rdvConfig.horaire || {})[new Date(iso + "T12:00").getDay()];
     return h ? [{ nom: "Atelier", debut: h[0], fin: h[1] }] : [];
@@ -26894,20 +26910,33 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const dureeH = dureeMin / 60, tampon = (rdvConfig.tampon || 0) / 60, pas = PAS_MIN / 60;
     const diner = rdvConfig.diner || {};
     const dDeb = diner.actif ? diner.debut : null, dFin = dDeb != null ? dDeb + (diner.duree || 60) / 60 : null;
+    // v178-CALA : places par le moteur commun rdvPlaces (règle stricte, tampon, épinglés, CAPACITE_MULTI_TECHS) ;
+    //             retenus des AUTRES demandes de ce jour ; dîner bloquant comme avant (dinerDur) ; demOccupe ne sert plus
+    //             qu'à générer les heures candidates (fin des occupés + tampon).
+    const extra = retenus.filter(r => !(saufDemande && r.demande_id === saufDemande) && String(r.iso).slice(0, 10) === iso);   // v178-CALA
+    const ctx = rdvCtx(iso, { typeMachine, extra });   // v178-CALA : avec ctx, les retenus passent par rdvCtx
     const places = (t) => {
       const fin = t + dureeH;
-      if (fin > ferme + 1e-9) return 0;
-      if (dDeb != null && t < dFin - 1e-9 && fin > dDeb + 1e-9) return 0;   // dîner : blocage dur
-      const charge = occupes.filter(o => !(fin + tampon <= o.debut + 1e-9 || t >= o.fin + tampon - 1e-9)).length;
-      const cap = techs.filter(x => t >= x.debut - 1e-9 && fin <= x.fin + 1e-9).length;
-      return Math.max(0, cap - charge);
+      if (fin > ferme + 1e-9) return { places: 0, capNoms: [] };   // v178-CALA
+      return rdvPlaces(iso, t, dureeH, { typeMachine, ctx, dinerDur: true });   // v178-CALA : { places, capNoms, libres… }
     };
     const vus = new Set(), out = [];
-    const ajouter = (t) => { const s = hhmm(t); if (!vus.has(s) && places(t) > 0) { vus.add(s); out.push({ heure: s, places: places(t) }); } };
+    const ajouter = (t) => { const s = hhmm(t); if (vus.has(s)) return; const p = places(t); if (p.places > 0) { vus.add(s); out.push({ heure: s, places: p.places, techs: p.capNoms.slice() }); } };   // v178-CALA : techs = TOUS les capables (contrat serveur creneaux[].techs), pas les libres
     for (let t = ouvre; t + dureeH <= ferme + 1e-9; t += pas) ajouter(t);
     if (dFin != null && dFin >= ouvre) ajouter(dFin);                        // reprise après le dîner
     occupes.forEach(o => { if (o.fin + tampon >= ouvre) ajouter(o.fin + tampon); });
     return out.sort((a, b) => a.heure.localeCompare(b.heure));
+  }
+  // v178-CALA : techniciens capables d'un créneau choisi, relus AU MOMENT de l'envoi (le choix n'a pas à les porter) →
+  //             { techs: [...] } pour demandes_service.creneaux[] ; sms-entrant refuse seulement si chevauchants >= techs.length.
+  //             Sans CAPACITE_MULTI_TECHS : pas de clé techs (le serveur garde la capacité 1 de la v177).
+  function demTechsCreneau(c, dureeMin, typeMachine, saufDemande) {
+    if (!CAPACITE_MULTI_TECHS) return {};
+    try {
+      const h = demHeures(String(c.iso).slice(0, 10), dureeMin, typeMachine, saufDemande).find(x => x.heure === c.heure);
+      const techs = h ? h.techs : rdvPlaces(String(c.iso).slice(0, 10), c.heure, (Number(dureeMin) || 60) / 60, { typeMachine }).capNoms;   // plage prise entre-temps : la capacité reste celle des techniciens qui la couvrent
+      return Array.isArray(techs) && techs.length ? { techs: techs.slice() } : {};
+    } catch (_) { return {}; }
   }
   // depuisJours : 0 = à partir de demain, 7 = la semaine suivante, etc.
   function demJours(dureeMin, typeMachine, saufDemande, nb, depuisJours) {
@@ -27428,7 +27457,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       const jeton = canal === "courriel" ? demJeton() : null;
       const { error: e2 } = await s.from("demandes_service").update({
         statut: "creneaux_envoyes", lu: true, duree_min: demPicker.duree, canal_envoi: canal, jeton,
-        creneaux: choix.map((c, i) => ({ no: i + 1, iso: c.iso, heure: c.heure, duree: demPicker.duree })),
+        creneaux: choix.map((c, i) => ({ no: i + 1, iso: c.iso, heure: c.heure, duree: demPicker.duree, ...demTechsCreneau(c, demPicker.duree, d.type_machine, d.id) })),   // v178-CALA : + techs (capacité figée à la proposition)
         creneaux_envoyes_le: new Date().toISOString(), nb_envois: (d.nb_envois || 0) + 1, note_interne: null,
       }).eq("id", d.id);
       if (e2) throw e2;
