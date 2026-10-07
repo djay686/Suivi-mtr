@@ -1960,6 +1960,50 @@ function basculerTheme() {
     .od-btn { min-height: 40px; }
     .od-tl-col { min-width: 128px; }
   }
+
+  /* ── v176 — Rôle Réception : options « Voir les coûts » et « Gestion » (classes posées sur <body> par appliquerDroits).
+     On CACHE, on ne retire jamais du DOM : le formulaire lit encore le champ « Coût $ » pour enregistrer. */
+  body.sans-couts .cout-seul, body.sans-couts .ligne-piece .pc-cout { display: none !important; }
+  body.sans-gestion .gestion-seul, body.sans-gestion #tableau-pied, body.sans-gestion #ong-feuille,
+  body.sans-gestion #btn-supprimer-machine { display: none !important; }
+  .emp-droits-options { grid-column: 1 / -1; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--bordure, #ccd); }
+  .emp-droits-titre { font-size: 12px; font-weight: 700; color: var(--sourdine); margin-bottom: 4px; }
+
+  /* ── v177 — « Mon poste » : l'accueil de la réception, dans le cadre de l'écran des techniciens ── */
+  body.role-reception #ecran-tech .mtr-contenu { display: flex; flex-direction: column; }
+  body.role-reception #ecran-tech .tech-entete { order: -2; }
+  body.role-reception #ecran-tech #tech-punch { order: -1; margin: 0 0 16px; }
+  #ecran-tech.poste .tech-tuiles { display: block; margin-bottom: 10px; }
+  .po-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .po-btn { background: #E0A81E; color: #15171A; border: none; border-radius: 12px; padding: 12px 16px; font-size: 15px; font-weight: 800; cursor: pointer; font-family: inherit; min-height: 46px; }
+  .po-btn.gris { background: rgba(255,255,255,.08); color: #F4F1E8; border: 1px solid rgba(255,255,255,.18); }
+  .po-btn .n { background: #F0736A; color: #15171A; border-radius: 20px; padding: 1px 8px; font-size: 12px; margin-left: 6px; }
+  .po-rech { width: 100%; box-sizing: border-box; font: 16px 'Segoe UI', system-ui, sans-serif; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(224,168,30,.45); background: rgba(25,29,35,.92); color: #F4F1E8; margin-bottom: 8px; }
+  .po-res { display: grid; gap: 6px; margin-bottom: 14px; }
+  .po-res button { text-align: left; background: rgba(25,29,35,.92); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 8px 12px; color: #F4F1E8; font-family: inherit; cursor: pointer; font-size: 13.5px; line-height: 1.4; }
+  .po-res button:hover { border-color: #E0A81E; }
+  .po-res .bt { font-family: ui-monospace, Consolas, monospace; color: #E0A81E; font-weight: 800; margin-right: 6px; }
+  .po-grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .po-carte { background: rgba(25,29,35,.92); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 12px 14px; color: #F4F1E8; min-height: 110px; }
+  .po-carte.alerte { border-color: rgba(240,115,106,.6); }
+  .po-titre { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #E0A81E; margin-bottom: 8px; }
+  .po-titre .n { background: #F0736A; color: #15171A; border-radius: 20px; padding: 1px 8px; font-size: 12px; letter-spacing: 0; }
+  .po-titre .ouvrir { margin-left: auto; background: none; border: 1px solid rgba(255,255,255,.18); color: #F4F1E8; border-radius: 8px; padding: 4px 8px; font-size: 12px; cursor: pointer; font-family: inherit; text-transform: none; letter-spacing: 0; }
+  .po-ligne { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid rgba(255,255,255,.08); font-size: 13.5px; }
+  .po-ligne.premiere { border-top: none; }
+  .po-ligne .txt { flex: 1; min-width: 140px; }
+  .po-ligne .sous { display: block; font-size: 12px; opacity: .7; }
+  .po-mini { background: rgba(255,255,255,.08); color: #F4F1E8; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; cursor: pointer; font-family: inherit; white-space: nowrap; text-decoration: none; }
+  .po-mini.ok { background: rgba(30,123,52,.35); border-color: rgba(30,123,52,.7); }
+  .po-mini.rouge { background: rgba(176,43,43,.35); border-color: rgba(176,43,43,.7); }
+  .po-compte { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .po-compte span { background: rgba(255,255,255,.08); border-radius: 20px; padding: 4px 10px; font-size: 12.5px; font-weight: 700; }
+  .po-compte span.rouge { background: rgba(240,115,106,.25); color: #F0736A; }
+  .po-vide { color: rgba(244,241,232,.6); font-style: italic; font-size: 13px; padding: 4px 0; }
+  .po-sections { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .po-sections button { background: rgba(25,29,35,.92); border: 1px solid rgba(224,168,30,.35); color: #F4F1E8; border-radius: 10px; padding: 9px 12px; font-size: 13.5px; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .po-sections button:hover { border-color: #E0A81E; }
+  .po-sans { color: #F0736A; font-weight: 700; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -2046,7 +2090,7 @@ function basculerTheme() {
     </div>
   </section>
 
-  <div class="pied">
+  <div class="pied" id="tableau-pied">
     <div id="etat-auto" class="etat-auto">💾 Sauvegarde automatique : <strong>désactivée</strong></div>
     <div class="pied-liens">
       <button id="btn-auto" onclick="activerAuto()">⚡ Activer la sauvegarde automatique</button> ·
@@ -2339,8 +2383,8 @@ function basculerTheme() {
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px">
         <h2 style="margin:0">👥 Carnet de clients</h2>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center">
-          <button class="btn-secondaire" onclick="document.getElementById('fichier-clients').click()">📥 Importer</button>
-          <button class="btn-secondaire" onclick="effacerTousClients()" style="color:#C0392B; border-color:#C0392B">🗑️ Tout effacer</button>
+          <button class="btn-secondaire gestion-seul" onclick="document.getElementById('fichier-clients').click()">📥 Importer</button>
+          <button class="btn-secondaire gestion-seul" onclick="effacerTousClients()" style="color:#C0392B; border-color:#C0392B">🗑️ Tout effacer</button>
           <button class="btn-principal" onclick="nouveauClient()">+ Nouveau client</button>
           <button class="btn-secondaire" id="clients-x" onclick="fermerClients()" title="Fermer le carnet"
             style="font-size:18px;line-height:1;padding:6px 12px">✕</button>
@@ -2378,7 +2422,7 @@ function basculerTheme() {
       <div class="modale-actions" style="justify-content:space-between">
         <button class="btn-secondaire" onclick="retourListeClients()">‹ Retour</button>
         <div style="display:flex; gap:10px">
-          <button class="btn-secondaire" id="c-suppr" onclick="supprimerClientCourant()" style="color:#C0392B; border-color:#C0392B">Supprimer</button>
+          <button class="btn-secondaire gestion-seul" id="c-suppr" onclick="supprimerClientCourant()" style="color:#C0392B; border-color:#C0392B">Supprimer</button>
           <button class="btn-principal" onclick="enregistrerClient()">Enregistrer</button>
         </div>
       </div>
@@ -2464,6 +2508,7 @@ function basculerTheme() {
             <select class="champ" id="emp-role" onchange="empRoleChange()">
               <option value="technicien">Technicien — arrive sur son écran d'accueil</option>
               <option value="tache">Tâches (homme à tout faire) — arrive sur sa liste de tâches</option>
+              <option value="reception">Réception / Service à la clientèle — arrive sur le tableau de bord, sans les dossiers employés ni les coûts</option>
               <option value="admin">Administration — arrive sur le tableau de bord</option>
             </select>
           </div>
@@ -2687,7 +2732,7 @@ function basculerTheme() {
 <!-- Modale Pièces à commander -->
 <div class="voile" id="voile-commandes">
   <div class="modale" style="max-width:760px">
-    <h2 style="margin:0 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">📦 Pièces à commander <button type="button" class="btn-secondaire" style="margin-left:auto;font-size:13px;padding:6px 10px" onclick="cmdDelaisOuvrir()" title="Délai normal de livraison : par défaut et par fournisseur">⏱️ Délais de commande</button></h2>
+    <h2 style="margin:0 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">📦 Pièces à commander <button type="button" class="btn-secondaire gestion-seul" style="margin-left:auto;font-size:13px;padding:6px 10px" onclick="cmdDelaisOuvrir()" title="Délai normal de livraison : par défaut et par fournisseur">⏱️ Délais de commande</button></h2>
     <p style="font-size:12.5px; color:var(--sourdine); margin:0 0 12px">Demandes des techniciens regroupées par bon de travail. Coche une pièce une fois commandée, puis confirme sa réception.</p>
     <div class="cmd-onglets">
       <button class="cmd-onglet actif" id="cmd-ong-commander" onclick="cmdOnglet('commander')">🛒 À commander</button>
@@ -3861,7 +3906,7 @@ function basculerTheme() {
       <button class="so-onglet"       id="so-tab-edit"     onclick="soumOnglet('edit')">Soumission</button>
       <button class="so-onglet"       id="so-tab-pieces"   onclick="soumOnglet('pieces')">Catalogue de pièces</button>
       <button class="so-onglet"       id="so-tab-archives" onclick="soumOnglet('archives')">🗂️ Archives</button>
-      <button class="so-onglet"       id="so-tab-reglages" onclick="soumOnglet('reglages')">⚙️ Réglages</button>
+      <button class="so-onglet gestion-seul" id="so-tab-reglages" onclick="soumOnglet('reglages')">⚙️ Réglages</button>
     </div>
 
     <!-- ── Liste ── -->
@@ -4021,12 +4066,12 @@ function basculerTheme() {
       <div id="so-qbo-info" class="so-qbo-info" style="display:none"></div>
 
       <div class="so-actions">
-        <button class="btn-secondaire" onclick="soumSupprimer()" style="margin-right:auto;color:var(--danger)">Supprimer</button>
+        <button class="btn-secondaire gestion-seul" onclick="soumSupprimer()" style="margin-right:auto;color:var(--danger)">Supprimer</button>
         <button class="btn-enreg" onclick="soumEnregistrerTout(this)">💾 Enregistrer</button>
         <button class="btn-secondaire" onclick="soumImprimer()">🖨️ Imprimer / PDF</button>
         <button class="btn-secondaire" onclick="soumEnvoiOuvrir()">📤 Envoyer au client</button>
-        <button class="btn-secondaire" id="so-btn-qbo" onclick="qboEnvoyerSoumission(this)">📗 Envoyer dans QuickBooks</button>
-        <button class="btn-secondaire" onclick="qboExporterCSV()" title="Fichier à importer dans QuickBooks : Paramètres → Importer des données → Factures">📄 CSV QuickBooks</button>
+        <button class="btn-secondaire gestion-seul" id="so-btn-qbo" onclick="qboEnvoyerSoumission(this)">📗 Envoyer dans QuickBooks</button>
+        <button class="btn-secondaire gestion-seul" onclick="qboExporterCSV()" title="Fichier à importer dans QuickBooks : Paramètres → Importer des données → Factures">📄 CSV QuickBooks</button>
         <button class="btn-secondaire" onclick="soumOnglet('liste')">Retour</button>
         <button class="btn-secondaire" onclick="soumVersBonTravail()">→ Bon de travail seulement</button>
         <button class="btn-principal" onclick="soumVersRdv()">📅 Ajouter le rendez-vous au calendrier</button>
@@ -4041,8 +4086,8 @@ function basculerTheme() {
           <input id="so-p-rech" placeholder="Numéro ou description…" oninput="soumRafraichirCatalogue()">
         </div>
         <button class="btn-secondaire" onclick="soumPieceNouvelle()">+ Nouvelle pièce</button>
-        <button class="btn-secondaire" onclick="document.getElementById('so-import-qb').click()">📥 Importer de QuickBooks (CSV)</button>
-        <button class="btn-secondaire" onclick="soumExporterCatalogue()">📤 Exporter CSV</button>
+        <button class="btn-secondaire gestion-seul" onclick="document.getElementById('so-import-qb').click()">📥 Importer de QuickBooks (CSV)</button>
+        <button class="btn-secondaire gestion-seul" onclick="soumExporterCatalogue()">📤 Exporter CSV</button>
         <input type="file" id="so-import-qb" accept=".csv,.txt" style="display:none" onchange="soumImporterQuickBooks(event)">
       </div>
       <div class="so-note">L'import QuickBooks reconnaît les colonnes <em>Item / Numéro</em>, <em>Description</em>, <em>Price / Prix</em> et <em>Cost / Coûtant</em>. Les numéros déjà présents sont mis à jour, jamais dupliqués.</div>
@@ -4053,7 +4098,7 @@ function basculerTheme() {
             <th style="width:150px">N° de pièce</th>
             <th>Description</th>
             <th style="width:100px">Prix vente</th>
-            <th style="width:100px">Coûtant</th>
+            <th style="width:100px" class="cout-seul">Coûtant</th>
             <th style="width:34px"></th>
           </tr></thead>
           <tbody id="so-catal"></tbody>
@@ -4439,7 +4484,7 @@ function basculerTheme() {
       <button class="so-onglet"       id="inv-tab-commandes" onclick="invOnglet('commandes')">🧾 Bons de commande</button>
       <button class="so-onglet"       id="inv-tab-previsions"onclick="invOnglet('previsions')">🔮 Prévisions</button>
       <button class="so-onglet"       id="inv-tab-mouvements"onclick="invOnglet('mouvements')">↕️ Mouvements</button>
-      <button class="so-onglet"       id="inv-tab-ventes"    onclick="invOnglet('ventes')">💰 Ventes</button>
+      <button class="so-onglet cout-seul" id="inv-tab-ventes"    onclick="invOnglet('ventes')">💰 Ventes</button>
       <button class="so-onglet"       id="inv-tab-fourn"     onclick="invOnglet('fourn')">🏭 Fournisseurs</button>
     </div>
 
@@ -4459,9 +4504,9 @@ function basculerTheme() {
         </select>
         <select id="inv-filtre-cat" onchange="invRendreArticles()"></select>
         <select id="inv-filtre-four" onchange="invRendreArticles()"></select>
-        <button class="btn-secondaire" onclick="document.getElementById('inv-imp-fic').click()">📥 Importer QuickBooks</button>
+        <button class="btn-secondaire gestion-seul" onclick="document.getElementById('inv-imp-fic').click()">📥 Importer QuickBooks</button>
         <input type="file" id="inv-imp-fic" accept=".csv,.txt" style="display:none" onchange="invImportFichier(event)">
-        <button class="btn-secondaire" onclick="invExporterCSV()">📤 CSV</button>
+        <button class="btn-secondaire gestion-seul" onclick="invExporterCSV()">📤 CSV</button>
       </div>
 
       <!-- Actions groupées : n'apparaît que si quelque chose est coché -->
@@ -4474,7 +4519,7 @@ function basculerTheme() {
         <button class="btn-secondaire" onclick="invSelCategorie()">🏷️ Catégorie</button>
         <button class="btn-secondaire" onclick="invSelPrixVerifie()">✔️ Prix vérifié</button>
         <button class="btn-secondaire" onclick="invSelVider()">Désélectionner</button>
-        <button class="btn-suppr-lot" onclick="invSelSupprimer()">🗑️ Supprimer</button>
+        <button class="btn-suppr-lot gestion-seul" onclick="invSelSupprimer()">🗑️ Supprimer</button>
       </div>
       <div class="so-mini" id="inv-compte" style="margin-bottom:8px">
         <button class="so-mini-btn" onclick="invSelTout()">☑ Tout sélectionner / désélectionner</button>
@@ -4586,7 +4631,7 @@ function basculerTheme() {
           <option value="90">90 derniers jours</option>
           <option value="0">Tout l'historique</option>
         </select>
-        <button class="btn-secondaire" onclick="invExporterMouvements()">📤 CSV</button>
+        <button class="btn-secondaire gestion-seul" onclick="invExporterMouvements()">📤 CSV</button>
       </div>
       <div class="so-mini" id="inv-mv-compte" style="margin-bottom:8px"></div>
       <div class="inv-defile"><table class="inv-mouv-t" id="inv-mv-table"></table></div>
@@ -4607,7 +4652,7 @@ function basculerTheme() {
           <option value="0">Tout</option>
         </select>
         <input type="search" id="inv-v-rech" placeholder="🔍 Article…" oninput="invRendreVentes()" autocomplete="off">
-        <button class="btn-secondaire" onclick="invExporterVentes()">📤 CSV</button>
+        <button class="btn-secondaire gestion-seul" onclick="invExporterVentes()">📤 CSV</button>
       </div>
       <div class="inv-kpis" id="inv-v-kpis"></div>
       <div id="inv-v-liste"></div>
@@ -4622,7 +4667,7 @@ function basculerTheme() {
       </div>
       <div class="inv-barre">
         <button class="btn-secondaire" onclick="invFournNouveau()">+ Nouveau fournisseur</button>
-        <button class="btn-secondaire" onclick="cmdDelaisOuvrir()">⏱️ Délais de commande</button>
+        <button class="btn-secondaire gestion-seul" onclick="cmdDelaisOuvrir()">⏱️ Délais de commande</button>
         <span id="inv-fourn-compte" class="so-mini"></span>
       </div>
       <div id="inv-fourn-liste"></div>
@@ -4692,9 +4737,9 @@ function basculerTheme() {
     </div>
 
     <div class="so-ligne">
-      <div class="so-champ" style="flex:1;min-width:110px"><label>Prix coûtant ($)</label><input type="number" step="0.01" id="inv-f-cout" oninput="invFicheMarge()"></div>
+      <div class="so-champ cout-seul" style="flex:1;min-width:110px"><label>Prix coûtant ($)</label><input type="number" step="0.01" id="inv-f-cout" oninput="invFicheMarge()"></div>
       <div class="so-champ" style="flex:1;min-width:110px"><label>Prix de détail ($)</label><input type="number" step="0.01" id="inv-f-prix" oninput="invFicheMarge()"></div>
-      <div class="so-champ" style="flex:1;min-width:110px"><label>Marge</label><div id="inv-f-marge" class="inv-marge" style="padding:9px 0">—</div></div>
+      <div class="so-champ cout-seul" style="flex:1;min-width:110px"><label>Marge</label><div id="inv-f-marge" class="inv-marge" style="padding:9px 0">—</div></div>
     </div>
 
     <div class="so-champ" style="margin-bottom:10px"><label>Notes</label><textarea id="inv-f-notes" rows="2"></textarea></div>
@@ -4726,7 +4771,7 @@ function basculerTheme() {
         </div>
       </div>
     </div>
-    <div class="so-champ" style="margin-bottom:10px"><label>Coût unitaire estimé ($)</label><input type="number" step="0.01" id="inv-achat-cout"></div>
+    <div class="so-champ cout-seul" style="margin-bottom:10px"><label>Coût unitaire estimé ($)</label><input type="number" step="0.01" id="inv-achat-cout"></div>
     <div class="so-champ" style="margin-bottom:10px"><label>Bon de commande</label><select id="inv-achat-po"></select></div>
     <div class="so-mini" id="inv-achat-sugg" style="margin-bottom:12px"></div>
     <div class="so-actions">
@@ -4866,7 +4911,7 @@ function basculerTheme() {
       <div class="so-champ" style="flex:1;min-width:150px"><label>Courriel des commandes</label><input id="inv-fo-courriel" autocomplete="off"></div>
       <div class="so-champ" style="flex:1;min-width:110px"><label>Délai normal de livraison (heures)</label><input type="number" min="0" step="1" id="inv-fo-delai" placeholder="72" title="Vide = délai par défaut (⏱️ Délais de commande). Fins de semaine non comptées : 72 h = 3 jours ouvrables."></div>
     </div>
-    <div class="so-champ" style="margin-bottom:10px"><label>Escompte sur le prix de détail (%)</label>
+    <div class="so-champ cout-seul" style="margin-bottom:10px"><label>Escompte sur le prix de détail (%)</label>
       <div style="display:flex;align-items:center;gap:6px"><input type="number" step="0.1" min="0" max="95" id="inv-fo-remise" placeholder="ex. 25" style="width:100px"><span>%</span>
       <span class="so-mini" style="flex:1">Rempli = le prix coûtant de <b>tous</b> les articles de ce fournisseur devient prix de détail − escompte, et se recalcule dès que le pourcentage change (ex. BRP). Vide = coûtant entré à la main.</span></div>
     </div>
@@ -4874,7 +4919,7 @@ function basculerTheme() {
     <div class="so-champ" style="margin-bottom:10px"><label>Lien recherche — {q}</label><input id="inv-fo-urlrech" class="inv-mono" autocomplete="off" placeholder="https://portail.exemple.com/recherche?q={q}"></div>
     <div class="so-champ" style="margin-bottom:10px"><label>Notes (compte, conditions…)</label><textarea id="inv-fo-notes" rows="2"></textarea></div>
     <div class="so-actions">
-      <button class="btn-secondaire" id="inv-fo-suppr" onclick="invFournSupprimer()" style="margin-right:auto;color:var(--danger)">Supprimer</button>
+      <button class="btn-secondaire gestion-seul" id="inv-fo-suppr" onclick="invFournSupprimer()" style="margin-right:auto;color:var(--danger)">Supprimer</button>
       <button class="btn-secondaire" onclick="invFournFermer()">Annuler</button>
       <button class="btn-principal" onclick="invFournEnregistrer()">💾 Enregistrer</button>
     </div>
@@ -4959,9 +5004,9 @@ function basculerTheme() {
     <div class="so-champ" style="margin-bottom:10px"><label>Description</label><input id="so-pop-desc"></div>
     <div class="so-ligne">
       <div class="so-champ" style="flex:1"><label>Prix de vente ($)</label><input type="number" step="0.01" id="so-pop-prix"></div>
-      <div class="so-champ" style="flex:1"><label>Prix coûtant ($)</label><input type="number" step="0.01" id="so-pop-cout" placeholder="facultatif"></div>
+      <div class="so-champ cout-seul" style="flex:1"><label>Prix coûtant ($)</label><input type="number" step="0.01" id="so-pop-cout" placeholder="facultatif"></div>
     </div>
-    <div class="so-mini">Si tu n'as pas le coûtant sous la main, laisse vide — l'app te le redemandera à la fermeture du bon de travail.</div>
+    <div class="so-mini cout-seul">Si tu n'as pas le coûtant sous la main, laisse vide — l'app te le redemandera à la fermeture du bon de travail.</div>
     <div class="so-actions">
       <button class="btn-secondaire" onclick="soumPopAnnuler()">Non merci</button>
       <button class="btn-principal" onclick="soumPopAjouter()">Ajouter au catalogue</button>
@@ -5008,7 +5053,7 @@ let sb = null;            // client Supabase (toujours enveloppé par clientProt
 // ══════════════ v170 — NOUVELLE VERSION EN LIGNE ══════════════
 // Un cell ou une tablette resté ouvert des jours garde l'ancienne app en mémoire (BT-103 : la sortie de stock de la
 // v168 n'a pas eu lieu). version.txt est publié avec chaque version : s'il ne concorde plus, un bandeau demande de recharger.
-const APP_VERSION = "v175";
+const APP_VERSION = "v177";
 let versionVue = "";
 async function versionVerifier() {
   try {
@@ -5878,25 +5923,26 @@ function smsEnvoyerCourriel() {
 
 // ─── Onglet MODÈLES ───────────────────────────────────────────────────
 function rendreOngletModeles(c) {
+  const g = typeof peut === "function" ? peut("gestion") : true;   // v176 : sans « Gestion », les modèles se lisent, ne se modifient pas
   const lignes = smsConfig.modeles.map((m, i) => `
     <div class="sms-mod-fiche">
       <div class="sms-mod-tete">
-        <input class="sms-mod-nom" value="${echap(m.nom)}" placeholder="Nom du modèle"
+        <input class="sms-mod-nom" value="${echap(m.nom)}" placeholder="Nom du modèle" ${g ? "" : "readonly"}
                oninput="smsModifModele(${i},'nom',this.value)">
-        <button class="sms-mod-sup" title="Supprimer" onclick="smsSupprimerModele(${i})">✕</button>
+        ${g ? `<button class="sms-mod-sup" title="Supprimer" onclick="smsSupprimerModele(${i})">✕</button>` : ""}
       </div>
-      <textarea class="sms-zone" rows="3" oninput="smsModifModele(${i},'corps',this.value)"
+      <textarea class="sms-zone" rows="3" oninput="smsModifModele(${i},'corps',this.value)" ${g ? "" : "readonly"}
                 placeholder="Texte du message">${echap(m.corps)}</textarea>
     </div>`).join("");
 
   c.innerHTML = `
-    <p class="aviser-aide">Variables disponibles :
+    <p class="aviser-aide">${g ? "Variables disponibles :" : "Modèles (lecture seule — l'administration les modifie). Variables :"}
       <code>{machine}</code> <code>{client}</code> <code>{tel_garage}</code> <code>{garage}</code></p>
     ${lignes}
-    <div class="sms-mod-actions">
+    ${g ? `<div class="sms-mod-actions">
       <button class="sms-mod-ajout" onclick="smsAjouterModele()">+ Nouveau modèle</button>
       <button class="sms-mod-reset" onclick="smsResetModeles()">↺ Modèles d'origine</button>
-    </div>`;
+    </div>` : ""}`;
 }
 function smsModifModele(i, champ, valeur) {
   if (!smsConfig.modeles[i]) return;
@@ -6146,7 +6192,7 @@ function afficher() {
           ${m.travaux ? `<div class="travaux">${echap(m.travaux)}</div>` : ""}
           <div class="echeance">✅ Livrée le ${formatDate(m.livreLe)}</div>
           <div class="carte-actions">
-            <button class="btn-statut" style="color:var(--c-prete); border-color:var(--c-prete)" onclick="restaurer('${m.id}')">↩ Remettre en « ${libelle("prete")} »</button>
+            <button class="btn-statut gestion-seul" style="color:var(--c-prete); border-color:var(--c-prete)" onclick="restaurer('${m.id}')">↩ Remettre en « ${libelle("prete")} »</button>
             <button class="btn-ico btn-bt" title="Bon de travail" onclick="bonDeTravail('${m.id}')">✅</button>
           </div>
         </article>`).join("");
@@ -7578,6 +7624,9 @@ async function sauverPointages() {
 }
 
 function ouvrirPunch() {
+  // v176 — un employé connecté qui n'est pas de l'administration n'a que SON punch : jamais la borne à NIP
+  // (qui pointe n'importe qui) ni la feuille de temps de tout le monde.
+  if (utilisateurCourant() && !estAdmin()) { ouvrirMonPunch(); return; }
   document.getElementById("voile-punch").classList.add("ouvert");
   document.getElementById("punch-pin").value = "";
   document.getElementById("punch-msg").textContent = "";
@@ -8627,6 +8676,7 @@ function techniciensDisponibles(iso, typeMachine) {
   if (estFerie(iso)) return [];
   return EMPLOYES.filter(e => {
     if (e.actif === false) return false;   // départ ou congé prolongé
+    if (roleDe(e) === "reception") return false;   // v176 : la réception ne compte pas dans la capacité de l'atelier (on peut quand même lui assigner un bon à la main)
     if (!empDisponible(e, iso)) return false;
     if (typeMachine && (e.competences||[]).length && !e.competences.includes(typeMachine)) return false;
     return true;
@@ -10813,14 +10863,15 @@ function carteHTML(m, statut) {
     ? `<button class="btn-statut btn-facturer" onclick="factOuvrir('${m.id}')" title="Comparer la soumission et le bon, puis faire la facture">🧾 Facturer</button>` : "";
   const icoFacture = "";   // v159 (Jason) : on facture depuis « Prêt à facturer » seulement ; dans « Facturé », le badge ouvre la facture
   const F = m.facturation || null;
+  // v176 : les montants sont dans un <span class="cout-seul"> — cachés pour qui n'a pas l'option « Voir les coûts »
   const badgeFactureTxt = F && F.qbo && F.qbo.id
-    ? `📗 Facture${F.qbo.doc ? " n° " + echap(F.qbo.doc) : ""} · ${soumArgent(F.qbo.total != null ? F.qbo.total : F.total)}${qboEstTest(F.qbo) || !F.qbo.realm ? " · 🧪 test" : ""}` : "";
+    ? `📗 Facture${F.qbo.doc ? " n° " + echap(F.qbo.doc) : ""}<span class="cout-seul"> · ${soumArgent(F.qbo.total != null ? F.qbo.total : F.total)}</span>${qboEstTest(F.qbo) || !F.qbo.realm ? " · 🧪 test" : ""}` : "";
   const badgeFacture = m.cadeau   // v168 : 🎁 payé comptant, pas de facture QuickBooks
-    ? `<span class="badge badge-cadeau" title="Fermé en cadeau${m.cadeau.par ? " par " + echap(m.cadeau.par) : ""} — payé comptant, pas de facture QuickBooks">🎁 Cadeau · payé comptant${m.cadeau.montant ? " · " + soumArgent(m.cadeau.montant) : ""}</span>`
+    ? `<span class="badge badge-cadeau" title="Fermé en cadeau${m.cadeau.par ? " par " + echap(m.cadeau.par) : ""} — payé comptant, pas de facture QuickBooks">🎁 Cadeau · payé comptant${m.cadeau.montant ? `<span class="cout-seul"> · ${soumArgent(m.cadeau.montant)}</span>` : ""}</span>`
     : badgeFactureTxt
     ? (F.qbo.url ? `<a class="badge badge-facture" href="${echap(F.qbo.url)}" target="_blank" rel="noopener" title="Ouvrir la facture dans QuickBooks" style="text-decoration:none">${badgeFactureTxt} ↗</a>`
                  : `<span class="badge badge-facture">${badgeFactureTxt}</span>`)
-    : (F && F.confirmeLe && (m.statut === "afacturer" || m.statut === "prete") ? `<span class="badge badge-afact">🧾 Facturation prête · ${soumArgent(F.sousTotal)} av. taxes</span>` : "");
+    : (F && F.confirmeLe && (m.statut === "afacturer" || m.statut === "prete") ? `<span class="badge badge-afact">🧾 Facturation prête<span class="cout-seul"> · ${soumArgent(F.sousTotal)} av. taxes</span></span>` : "");
   // v168 — 🎁 discret en haut à droite : fermer le bon en cadeau (payé comptant, pas de facture QuickBooks)
   const btnCadeau = (m.statut === "afacturer" || m.statut === "commande") && !m.cadeau && typeof factPeutFacturer === "function" && factPeutFacturer()
     ? `<button type="button" class="btn-cadeau cadeau-discret" title="🎁 Cadeau : payé comptant, pas de facture QuickBooks — ferme le bon" onclick="factCadeau('${m.id}')">🎁</button>` : "";
@@ -10896,7 +10947,7 @@ function carteHTML(m, statut) {
         ${icoFacture}
         <button class="btn-ico btn-bt" title="Bon de travail" onclick="bonDeTravail('${m.id}')">✅</button>
         <button class="btn-ico" title="Modifier" onclick="ouvrirEdition('${m.id}')">✏️</button>
-        <button class="btn-ico" title="Supprimer" onclick="supprimer('${m.id}')">🗑️</button>
+        <button class="btn-ico gestion-seul" title="Supprimer" onclick="supprimer('${m.id}')">🗑️</button>
       </div>
     </article>`;
 }
@@ -11037,9 +11088,10 @@ function afficherArchives() {
       ${m.travaux ? `<div class="travaux">${echap(m.travaux)}</div>` : ""}
       <div class="echeance">✅ Livrée le ${formatDate(m.livreLe)}</div>
       <div class="carte-actions">
-        <button class="btn-statut" style="color:var(--c-prete); border-color:var(--c-prete)" onclick="restaurer('${m.id}')">↩ Remettre en « ${libelle("prete")} »</button>
+        <button class="btn-statut gestion-seul" style="color:var(--c-prete); border-color:var(--c-prete)" onclick="restaurer('${m.id}')">↩ Remettre en « ${libelle("prete")} »</button>
+        <button class="btn-ico btn-bt" title="Bon de travail" onclick="bonDeTravail('${m.id}')">✅</button>
         <span class="espace"></span>
-        <button class="btn-ico" title="Supprimer définitivement" onclick="supprimerArchive('${m.id}')">🗑️</button>
+        <button class="btn-ico gestion-seul" title="Supprimer définitivement" onclick="supprimerArchive('${m.id}')">🗑️</button>
       </div>
     </article>`).join("");
 }
@@ -11086,8 +11138,9 @@ function supprimer(id) {
 
 // ─── Formulaire ────────────────────────────────────────────
 function majOptionsStatut(estEdition) {
+  const g = typeof peut === "function" ? peut("gestion") : true;   // v176 : « Prêt à facturer » et « Facturé » passent par la facturation (administration)
   document.querySelectorAll("#f-statut option[data-edition-seule]").forEach(o => {
-    o.hidden = !estEdition; // visibles seulement en édition
+    o.hidden = !estEdition || (!g && (o.value === "afacturer" || o.value === "prete")); // visibles seulement en édition
   });
 }
 
@@ -12537,6 +12590,7 @@ function fermerSoumissions() {
   rafraichirFenetreDessous();
 }
 function soumOnglet(nom) {
+  if (nom === "reglages" && typeof peut === "function" && !peut("gestion")) nom = "liste";   // v176 : réglages = option « Gestion »
   soumVider();
   ["liste","edit","pieces","archives","reglages"].forEach(n => {
     document.getElementById("so-tab-" + n).classList.toggle("actif", n === nom);
@@ -16221,8 +16275,8 @@ function soumRafraichirCatalogue() {
         autocapitalize="characters" autocorrect="off" spellcheck="false" onchange="soumPieceMaj(${idx},'num',this.value)"></td>
       <td data-l="Description"><input value="${echap(p.desc||"")}" oninput="soumPieceMaj(${idx},'desc',this.value)"></td>
       <td data-l="Prix vente"><input type="number" step="0.01" value="${p.prix ?? ""}" oninput="soumPieceMaj(${idx},'prix',this.value)"></td>
-      <td data-l="Coûtant"><input type="number" step="0.01" value="${p.cout ?? ""}" placeholder="—" oninput="soumPieceMaj(${idx},'cout',this.value)"></td>
-      <td data-l=""><button class="btn-secondaire" style="padding:2px 7px;font-size:12px" onclick="soumPieceSuppr(${idx})">×</button></td>
+      <td data-l="Coûtant" class="cout-seul"><input type="number" step="0.01" value="${p.cout ?? ""}" placeholder="—" oninput="soumPieceMaj(${idx},'cout',this.value)"></td>
+      <td data-l=""><button class="btn-secondaire gestion-seul" style="padding:2px 7px;font-size:12px" onclick="soumPieceSuppr(${idx})">×</button></td>
     </tr>`;
   }).join("");
 }
@@ -17562,6 +17616,7 @@ function fermerInventaire() {
   document.getElementById("voile-inventaire").classList.remove("ouvert");
 }
 function invOnglet(nom) {
+  if (nom === "ventes" && typeof peut === "function" && !peut("voirCouts")) nom = "articles";   // v176 : ventes / marges = option « Voir les coûts »
   invOngletActif = nom;
   ["articles","reception","commandes","previsions","mouvements","ventes","fourn"].forEach(x => {
     const t = document.getElementById("inv-tab-" + x);
@@ -17664,8 +17719,8 @@ function invRendreArticles() {
           <div class="inv-carte-meta">${echap(p.desc || "sans description")}${p.marque ? ` <span class="inv-tag">${echap(p.marque)}</span>` : ""}</div>
           <div class="inv-carte-meta">
             ${p.empl ? `📍 ${echap(p.empl)} · ` : ""}${p.four ? `🏭 ${echap(invFourNom(p.four))}${invFournIncomplet(invFour(p.four)) ? ` <span class="inv-pill p-bas">fiche incomplète</span>` : ""} · ` : ""}
-            ${p.cb ? `▮▯▮ ${echap(p.cb)} · ` : ""}coûtant ${invArgent(p.cout)} → détail ${invArgent(p.prix)}
-            ${marge !== null ? ` <span class="inv-marge ${marge<15?"faible":""}">(${marge} %)</span>` : ""}
+            ${p.cb ? `▮▯▮ ${echap(p.cb)} · ` : ""}<span class="cout-seul">coûtant ${invArgent(p.cout)} → </span>détail ${invArgent(p.prix)}
+            ${marge !== null ? ` <span class="inv-marge cout-seul ${marge<15?"faible":""}">(${marge} %)</span>` : ""}
           </div>
           <div style="margin-top:4px">${(p.cats||[]).map(c => `<span class="inv-tag">${echap(c)}</span>`).join("")}</div>
         </div>
@@ -17695,7 +17750,7 @@ function invRendreKpis() {
   const z = document.getElementById("inv-kpis"); if (!z) return;
   z.innerHTML = `
     <div class="inv-kpi"><div class="v">${suivis.length}</div><div class="e">Articles suivis</div></div>
-    <div class="inv-kpi bien"><div class="v">${invArgent(valeur)}</div><div class="e">Valeur au coûtant</div></div>
+    <div class="inv-kpi bien cout-seul"><div class="v">${invArgent(valeur)}</div><div class="e">Valeur au coûtant</div></div>
     <div class="inv-kpi ${rupture?"alerte":""} clic" onclick="invFiltreRapide('rupture')"><div class="v">${rupture}</div><div class="e">En rupture</div></div>
     <div class="inv-kpi ${bas?"alerte":""} clic" onclick="invFiltreRapide('bas')"><div class="v">${bas}</div><div class="e">Sous le seuil</div></div>
     <div class="inv-kpi clic" onclick="invOnglet('commandes')"><div class="v">${poActifs}</div><div class="e">Bons en cours</div></div>`;
@@ -18048,8 +18103,8 @@ function invPoRendre() {
       <td class="inv-mono">${echap(l.num)}${l.fnum ? `<div class="so-mini">chez fourn. : ${echap(l.fnum)}</div>` : ""}</td>
       <td>${echap(l.desc||"")}</td>
       <td style="width:78px"><input type="number" step="0.01" value="${invN(l.qte)}" onchange="invPoLigne('${po.id}',${i},'qte',this.value)"></td>
-      <td style="width:92px"><input type="number" step="0.01" value="${invN(l.coutU)}" onchange="invPoLigne('${po.id}',${i},'coutU',this.value)"></td>
-      <td class="num" style="white-space:nowrap">${invArgent(invN(l.qte)*invN(l.coutU))}</td>
+      <td style="width:92px" class="cout-seul"><input type="number" step="0.01" value="${invN(l.coutU)}" onchange="invPoLigne('${po.id}',${i},'coutU',this.value)"></td>
+      <td class="num cout-seul" style="white-space:nowrap">${invArgent(invN(l.qte)*invN(l.coutU))}</td>
       <td style="width:74px;text-align:center">${st !== "brouillon" ? `<span class="so-mini">${invQ(l.recu)}/${invQ(l.qte)}</span>` : ""}</td>
       <td style="width:34px;text-align:center"><button class="so-mini-btn" onclick="invPoLigneSuppr('${po.id}',${i})">✕</button></td>
     </tr>`).join("");
@@ -18061,7 +18116,7 @@ function invPoRendre() {
           <span class="so-statut ${INV_PO_CLS[st]}" style="margin-left:8px">${INV_PO_LIB[st]}</span>
           <div class="so-mini">${echap(po.fourNom || "aucun fournisseur")} · ${(po.lignes||[]).length} ligne(s) · créé ${invHorodate(po.creeLe)}${po.creePar ? " par " + echap(po.creePar) : ""}</div>
         </div>
-        <div class="inv-po-total">${invArgent(invPoTotal(po))}</div>
+        <div class="inv-po-total cout-seul">${invArgent(invPoTotal(po))}</div>
       </div>
       <div class="inv-po-corps">
         <div class="so-ligne">
@@ -18077,10 +18132,10 @@ function invPoRendre() {
           <div class="so-champ" style="flex:2;min-width:200px"><label>Notes / n° de confirmation</label>
             <input value="${echap(po.notes||"")}" onchange="invPoNote('${po.id}',this.value)"></div>
         </div>
-        ${lignes ? `<table class="so-tableau"><thead><tr><th>N° pièce</th><th>Description</th><th>Qté</th><th>Coût u.</th><th>Total</th><th>Reçu</th><th></th></tr></thead><tbody>${lignes}</tbody></table>`
+        ${lignes ? `<table class="so-tableau"><thead><tr><th>N° pièce</th><th>Description</th><th>Qté</th><th class="cout-seul">Coût u.</th><th class="cout-seul">Total</th><th>Reçu</th><th></th></tr></thead><tbody>${lignes}</tbody></table>`
                  : `<div class="inv-vide">Bon vide — ajoute des articles avec le bouton « 🛒 Acheter ».</div>`}
         <div class="so-actions">
-          <button class="btn-secondaire" onclick="invPoSupprimer('${po.id}')" style="margin-right:auto;color:var(--danger)">Supprimer</button>
+          <button class="btn-secondaire gestion-seul" onclick="invPoSupprimer('${po.id}')" style="margin-right:auto;color:var(--danger)">Supprimer</button>
           <button class="btn-secondaire" onclick="invPoImprimer('${po.id}')">🖨️ Imprimer / PDF</button>
           ${f2 && f2.courriel ? `<button class="btn-secondaire" onclick="invPoCourriel('${po.id}')">📧 Envoyer par courriel</button>` : ""}
           ${f2 && (f2.urlProduit||f2.urlRecherche) ? `<button class="btn-secondaire" onclick="invPoPortail('${po.id}')">🔗 Portail fournisseur</button>` : ""}
@@ -18925,7 +18980,7 @@ function prevEnRouteRendre() {
   const nR = L.filter(x => x.retardMs > 0).length;
   z.innerHTML = `<div class="inv-enroute">
     <div class="inv-enroute-t">📦 Pièces commandées — en route (${L.length})${nR ? ` <span class="inv-pill p-rupture">⚠️ ${nR} en retard</span>` : ` <span class="inv-pill p-ok">toutes à temps</span>`}
-      <button class="btn-secondaire" style="margin-left:auto;font-size:12.5px;padding:5px 9px" onclick="cmdDelaisOuvrir()">⏱️ Délais de commande</button></div>
+      <button class="btn-secondaire gestion-seul" style="margin-left:auto;font-size:12.5px;padding:5px 9px" onclick="cmdDelaisOuvrir()">⏱️ Délais de commande</button></div>
     <div class="so-mini" style="margin:2px 0 6px">Déjà commandées : elles ne comptent pas dans les manques ci-dessus. Un rappel ⏰ sonne seulement quand le délai normal du fournisseur est dépassé (${echap(cmdDelaiTexte(cmdDelaiDefautH()))} par défaut).</div>
     <table class="inv-prev-t"><thead><tr><th>Pièce</th><th>Pour</th><th>Fournisseur</th><th>Commandée</th><th>Arrivée prévue</th><th></th></tr></thead><tbody>
     ${L.map(x => `<tr class="${x.retardMs > 0 ? "manque" : ""}">
@@ -21956,25 +22011,44 @@ const SECTIONS = [
   { id: "checklists", label: "Checklists de travaux",  ico: "☑️", ouvrir: "ouvrirChecklists" },
   { id: "admin",      label: "Administration",         ico: "🔐", ouvrir: "ouvrirAdmin" },
 ];
-const ROLES = { admin: "Administration", technicien: "Technicien", tache: "Tâches (homme à tout faire)" };   // v90
+const ROLES = { admin: "Administration", technicien: "Technicien", tache: "Tâches (homme à tout faire)", reception: "Réception / Service à la clientèle" };   // v90, v176
+// v176 — Options (cases à cocher du dossier employé, en plus des sections). Elles se lisent comme une section :
+// droitDe(e, "voirCouts"). L'administration les a toutes ; les autres rôles ne les ont pas tant qu'on ne les coche pas.
+//   voirCouts : coûtants d'achat, marges, valeur du stock, montants de facture
+//   gestion   : supprimer / exporter / importer, réglages (SMS, rappels, téléphonie, soumissions, délais), QuickBooks
+const SOUS_DROITS = [
+  { id: "voirCouts", label: "Voir les coûts (coûtants, marges, valeur du stock)", ico: "💲" },
+  { id: "gestion",   label: "Gestion (supprimer, exporter, réglages, QuickBooks)", ico: "🛠️" },
+];
 const DROITS_DEFAUT = {
-  admin:      Object.fromEntries(SECTIONS.map(s => [s.id, true])),
+  admin:      Object.fromEntries([...SECTIONS, ...SOUS_DROITS].map(s => [s.id, true])),
   technicien: { tableau: false, nouvelle: false, scanBT: true, live: true, punch: true, commandes: true, calendrier: true, ordre: true,
-                soumissions: false, clients: false, inventaire: false, archives: false, sms: false, ecranAtelier: true, admin: false, messages: true, taches: true, marketplace: false, positions: false, activites: false, checklists: false, rappels: false, marketing: false, demandes: false },
+                soumissions: false, clients: false, inventaire: false, archives: false, sms: false, ecranAtelier: true, admin: false, messages: true, taches: true, marketplace: false, positions: false, activites: false, checklists: false, rappels: false, marketing: false, demandes: false, communications: false,
+                voirCouts: false, gestion: false },
   // v90 — homme à tout faire sur tablette : ses tâches, le punch et les messages, rien d'autre
   tache:      { tableau: false, nouvelle: false, scanBT: false, live: false, punch: true, commandes: false, calendrier: false, ordre: false,
-                soumissions: false, clients: false, inventaire: false, archives: false, sms: false, ecranAtelier: false, admin: false, messages: true, taches: true, marketplace: true, positions: false, activites: false, checklists: false, rappels: false, marketing: false, demandes: false },
+                soumissions: false, clients: false, inventaire: false, archives: false, sms: false, ecranAtelier: false, admin: false, messages: true, taches: true, marketplace: true, positions: false, activites: false, checklists: false, rappels: false, marketing: false, demandes: false, communications: false,
+                voirCouts: false, gestion: false },
+  // v176 — Réception / service à la clientèle : la même maison que l'administration (tableau de bord, téléphone,
+  // rendez-vous, pièces, soumissions, clients) ET l'atelier (scanner un bon, travail live, punch) parce qu'il travaille
+  // aussi sur des machines. Jamais : dossiers employés, rentabilité, feuille de temps, GPS, marketing, coûts, gestion.
+  reception:  { tableau: true, nouvelle: true, scanBT: true, live: true, punch: true, commandes: true, calendrier: true, ordre: true,
+                soumissions: true, clients: true, inventaire: true, archives: true, sms: true, ecranAtelier: true, admin: false, messages: true, taches: true, marketplace: false, positions: false, activites: false, checklists: false, rappels: true, marketing: false, demandes: true, communications: true,
+                voirCouts: false, gestion: false },
 };
 function roleDe(e) {
   if (!e) return "technicien";
-  if (e.role === "admin" || e.role === "technicien" || e.role === "tache") return e.role;
+  if (e.role === "admin" || e.role === "technicien" || e.role === "tache" || e.role === "reception") return e.role;
   return e.nom === "Jason" ? "admin" : "technicien";       // avant la v74 : le propriétaire est l'admin
 }
 function droitDe(e, section) {
   const r = roleDe(e);
   if (e && e.droits && Object.prototype.hasOwnProperty.call(e.droits, section)) return !!e.droits[section];
-  return !!DROITS_DEFAUT[r][section];
+  return !!(DROITS_DEFAUT[r] || DROITS_DEFAUT.technicien)[section];
 }
+// v176 — une option (voirCouts, gestion) : l'administration l'a toujours ; sans session, rien n'est bloqué (comme droit()).
+function peut(option) { return estAdmin() || droit(option); }
+function estReception() { return roleDe(utilisateurCourant()) === "reception"; }
 let sessionCourante = null;   // { nom, quand }
 function utilisateurCourant() {
   if (!sessionCourante) return null;
@@ -22517,6 +22591,12 @@ async function deconnecter() {
 // ── Accueil selon le rôle ───────────────────────────────────
 function ouvrirAccueil() {
   if (estAdmin()) { fermerEcranTech(); return; }   // l'administration arrive sur le tableau de bord
+  if (estReception()) {                             // v177 : la réception arrive sur « Mon poste » ; le téléphone n'attend pas le punch
+    ouvrirEcranTech();
+    const e = utilisateurCourant();
+    if (e && droitDe(e, "punch") && !pointageOuvert(e.nom)) setTimeout(() => toastAviser("🕐 Pense à puncher ton arrivée (ligne du haut).", true), 800);
+    return;
+  }
   ouvrirEcranTech();
 }
 let techTimer = null;
@@ -22562,6 +22642,8 @@ function rendreEcranTech() {
   document.getElementById("tech-bonjour").textContent = (h < 12 ? "Bonjour" : h < 18 ? "Bon après-midi" : "Bonsoir") + " " + e.nom;
   { const t = document.getElementById("tech-titre"); if (t) { t.textContent = e.titre || ""; t.classList.toggle("visible", !!e.titre); } }
   document.getElementById("tech-date").textContent = new Date().toLocaleDateString("fr-CA", { weekday: "long", day: "numeric", month: "long" });
+  if (roleDe(e) === "reception") { posteRendre(e); return; }   // v177 : la réception a « Mon poste » à la place des tuiles
+  document.getElementById("ecran-tech").classList.remove("poste");
   const nonLus = chatNonLus();
   const roleTache = roleDe(e) === "tache";
   const nbTaches = tachesAFaire(e).length;
@@ -22631,6 +22713,182 @@ function rendreEcranTech() {
 let techAVenirOuvert = false;   // v149 — replié par défaut, à chaque ouverture de l'écran
 function techAVenirBasculer() { techAVenirOuvert = !techAVenirOuvert; rendreEcranTech(); }
 
+// ═══════════════════════════════════════════════════════════
+// v177 — « MON POSTE » : l'accueil de la réception (Jason : « je veux la version poste »)
+// Même cadre que l'écran des techniciens (en-tête, horloge, ligne de punch), mais à la place des tuiles :
+// des cartes nourries par ce qui existe déjà — Communications (appels manqués, textos, rappels), Demandes de
+// rendez-vous, calendrier d'aujourd'hui et de demain, pièces (à commander, en route, en retard), soumissions,
+// machines à remettre au client, recherche « où en est la machine de… », actions rapides, et le reste des
+// sections ouvertes à l'employé. Aucun montant d'argent, aucun coût. Se redessine à chaque changement de données
+// (rendreEcranTechSiOuvert) ; le champ de recherche garde son texte.
+// ═══════════════════════════════════════════════════════════
+let posteRecherche = "";
+const POSTE_ACTIONS = [   // gros boutons du haut (section → fonction) ; seuls ceux que l'employé a le droit d'ouvrir
+  { id: "communications", lbl: "📞 Communications", fn: "posteOuvrirComm" },
+  { id: "nouvelle", lbl: "➕ Nouveau bon", fn: "ouvrirFormulaire" },
+  { id: "calendrier", lbl: "📅 Appel rendez-vous", fn: "ouvrirAppelRdv" },
+  { id: "communications", lbl: "📝 Note d'appel", fn: "posteNoteAppel" },
+  { id: "soumissions", lbl: "🧾 Soumission", fn: "ouvrirSoumissions" },
+  { id: "commandes", lbl: "📦 Pièces à commander", fn: "ouvrirCommandes" },
+  { id: "inventaire", lbl: "🗃️ Stock", fn: "ouvrirInventaire" },
+];
+function posteOuvrirComm(tel) { if (typeof window.ouvrirCommunications === "function") window.ouvrirCommunications(tel || undefined); }
+function posteNoteAppel() { if (typeof window.commNoteAppel === "function") window.commNoteAppel("", { manuel: true }); }
+function posteTel(t) { const d = String(t || "").replace(/\D/g, "").slice(-10); return d.length === 10 ? d.slice(0, 3) + "-" + d.slice(3, 6) + "-" + d.slice(6) : (t || ""); }
+function posteHeure(iso) { const d = new Date(iso); return isNaN(d) ? "" : String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
+function posteQuand(iso) {
+  const d = new Date(iso); if (isNaN(d)) return "";
+  const j = isoLocal(d), auj = isoLocal(new Date()), hier = new Date(); hier.setDate(hier.getDate() - 1);
+  return (j === auj ? "" : j === isoLocal(hier) ? "hier " : tchDate(j) + " ") + posteHeure(iso);
+}
+function posteDureeRetard(min) { return min < 60 ? min + " min" : Math.floor(min / 60) + " h" + (min % 60 ? " " + (min % 60) + " min" : ""); }
+async function posteOuvrirDemande(id) { try { if (typeof window.ouvrirDemandes === "function") await window.ouvrirDemandes(); if (window.__dem) window.__dem.ouvrirFiche(id); } catch (_) {} }
+function posteRappelFait(id) { try { if (window.__comm) window.__comm.rappelAction(id, "fait"); } catch (_) {} }
+function postePrevenirAdmin() { const a = EMPLOYES.find(x => x.actif !== false && roleDe(x) === "admin"); try { ouvrirChat(a ? a.nom : undefined); } catch (_) { try { ouvrirChat(); } catch (__) {} } }
+function posteOuvrirSoum(onglet) { ouvrirSoumissions(); if (onglet) try { soumOnglet(onglet); } catch (_) {} }
+function posteOuvrirPrevisions() { ouvrirInventaire(); try { invOnglet("previsions"); } catch (_) {} }
+
+// Les données de chaque carte (fonctions pures, testables)
+function posteDonneesComm() {
+  const C = (window.__comm && typeof window.__comm.comms === "function") ? window.__comm.comms() : [];
+  const now = Date.now();
+  const aT = C.filter(c => c.statut === "a_traiter");
+  const dus = C.filter(c => c.statut === "rappel" && c.rappel_le && new Date(c.rappel_le).getTime() <= now)
+    .sort((a, b) => String(a.rappel_le).localeCompare(String(b.rappel_le)));
+  return { aT, dus, nApp: aT.filter(c => c.canal === "appel_manque").length, nSms: aT.filter(c => c.canal === "sms_in").length,
+           nAutre: aT.filter(c => c.canal !== "appel_manque" && c.canal !== "sms_in").length, total: aT.length + dus.length };
+}
+function posteDonneesDemandes() {
+  const D = (window.__dem && typeof window.__dem.demandes === "function") ? (window.__dem.demandes() || []) : [];
+  const aTraiter = d => ["nouvelle", "autres_choix", "conflit"].includes(d.statut) || (d.statut === "confirmee" && !d.soum_id);
+  const liste = D.filter(aTraiter).sort((a, b) => String(b.cree_le || "").localeCompare(String(a.cree_le || "")));
+  let sms = 0; try { sms = window.__dem && typeof window.__dem.smsNonTraites === "function" ? (window.__dem.smsNonTraites() || []).length : 0; } catch (_) {}
+  let perdus = []; try { perdus = window.__dem && typeof window.__dem.bonManquant === "function" ? D.filter(d => window.__dem.bonManquant(d)) : []; } catch (_) {}
+  return { liste, sms, perdus, total: liste.length + sms };
+}
+function posteDonneesPieces() {
+  let enRoute = [], retards = []; try { enRoute = cmdEnRoute(); retards = enRoute.filter(x => x.retardMs > 0); } catch (_) {}
+  return { aCommander: nbPiecesACommander(), enRoute: enRoute.length, retards, attente: machines.filter(m => m.statut === "attente").length };
+}
+function posteDonneesSoum() {
+  const S = (typeof soumissions !== "undefined" ? soumissions : []) || [];
+  const envoyees = S.filter(s => s.statut === "envoyee");
+  const plusVieille = envoyees.reduce((t, s) => { const j = joursDepuis(s.envoyeeLe || s.date); return j != null && j > t ? j : t; }, 0);
+  return { envoyees: envoyees.length, plusVieille, acceptees: (typeof soumNbAccepteesNeuves === "function" ? soumNbAccepteesNeuves() : 0),
+           brouillons: S.filter(s => s.statut === "brouillon").length, sansSoum: machines.filter(m => m.statut === "avenir" && rdvSansSoumission(m)).length };
+}
+function posteDonneesRemise() {
+  const pretes = machines.filter(m => m.statut === "prete").sort((a, b) => String(a.echeance || "").localeCompare(String(b.echeance || "")));
+  const aFacturer = machines.filter(m => m.statut === "afacturer");
+  const plusVieux = aFacturer.reduce((t, m) => { const j = joursDepuis(m.pretAFacturerLe || m.travauxTerminesLe); return j != null && j > t ? j : t; }, 0);
+  return { pretes, aFacturer: aFacturer.length, plusVieux };
+}
+// Recherche : nom, client, NIV, travaux, téléphone (même sans tirets), n° de BT, n° de carton, plaque — archives comprises
+function posteChercher(q) {
+  q = String(q || "").trim().toLowerCase(); if (!q) return [];
+  const qd = q.replace(/\D/g, "");
+  const touche = m => [m.nom, m.client, m.reference, m.travaux, m.numeroBT, m.numeroMachine, m.plaque, m.descriptionMachine].some(c => (c || "").toLowerCase().includes(q))
+    || (qd.length >= 3 && String(m.tel || "").replace(/\D/g, "").includes(qd)) || (m.annee && (m.annee + " " + (m.nom || "")).toLowerCase().includes(q));
+  const actives = machines.filter(m => m.statut !== "archive" && touche(m)), archives = machines.filter(m => m.statut === "archive" && touche(m));
+  return actives.concat(archives).slice(0, 8);
+}
+function posteResultatHTML(m) {
+  const arch = m.statut === "archive";
+  return `<button type="button" onclick="posteOuvrirBon('${echap(m.id)}')">
+    <span class="bt">${echap(m.numeroBT || "—")}</span><b>${echap(nomMachine(m))}</b>${m.numeroMachine ? ` · 🏷️ ${echap(m.numeroMachine)}` : ""}${m.plaque ? ` · ${echap(m.plaque)}` : ""} · ${echap(m.client || "")}${m.tel ? " · 📞 " + echap(posteTel(m.tel)) : ""}
+    <span class="sous">${arch ? "🗂️ Archivée" + (m.livreLe ? " · livrée le " + echap(formatDate(m.livreLe)) : "") : echap(libelle(m.statut))}${m.technicien ? " · " + echap(m.technicien) : ""}${m.echeance ? " · 📅 " + echap(formatCourt(m.echeance, m.heure)) : ""}${m.lieu ? " · 📍 " + echap(lieuTexte(m)) : ""}${m.resteAFaire && m.resteAFaire.texte ? " · ⏳ " + echap(String(m.resteAFaire.texte).slice(0, 60)) : ""}</span>
+  </button>`;
+}
+function posteOuvrirBon(id) { const m = machines.find(x => x.id === id); if (!m) return; if (m.statut === "archive") { try { bonDeTravail(id); } catch (_) {} return; } ouvrirEdition(id); }
+function posteRechercheSaisie(v) { posteRecherche = v; posteRechercheRendre(); }
+function posteRechercheRendre() {
+  const z = document.getElementById("po-res"); if (!z) return;
+  const L = posteChercher(posteRecherche);
+  z.innerHTML = posteRecherche.trim() ? (L.length ? L.map(posteResultatHTML).join("") : `<div class="po-vide">Aucune machine ne correspond.</div>`) : "";
+}
+
+function posteRendre(e) {
+  const ec = document.getElementById("ecran-tech"), z = document.getElementById("tech-tuiles"); if (!ec || !z) return;
+  ec.classList.add("poste");
+  ["tech-sec-taches", "tech-taches", "tech-sec-ordre", "tech-ordre", "tech-sec-machines", "tech-machines", "tech-btr"].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
+  techVerrouMaj();
+  const peut = id => droitDe(e, id);
+  const champ = document.getElementById("po-rech");
+  if (champ && document.activeElement === champ) posteRecherche = champ.value;   // on redessine pendant qu'on tape : garder le texte
+  const auj = isoLocal(new Date()), dem = new Date(); dem.setDate(dem.getDate() + 1); const demIso = isoLocal(dem);
+  const carte = (cls, titre, n, ouvrir, corps) => `<div class="po-carte${cls ? " " + cls : ""}"><div class="po-titre">${titre}${n ? `<span class="n">${n}</span>` : ""}${ouvrir ? `<button type="button" class="ouvrir" onclick="${ouvrir}">Ouvrir →</button>` : ""}</div>${corps}</div>`;
+  const ligne = (i, html) => `<div class="po-ligne${i === 0 ? " premiere" : ""}">${html}</div>`;
+  const html = [];
+
+  // B — actions rapides
+  const actions = POSTE_ACTIONS.filter(a => peut(a.id));
+  if (actions.length) html.push(`<div class="po-actions">${actions.map(a => `<button type="button" class="po-btn" onclick="${a.fn}()">${a.lbl}</button>`).join("")}<button type="button" class="po-btn gris" onclick="fermerEcranTech()">📋 Tableau de bord</button></div>`);
+
+  // C — recherche
+  html.push(`<input class="po-rech" id="po-rech" placeholder="🔍 Où en est la machine de… (nom, téléphone, n° de BT, n° de carton, plaque)" value="${echap(posteRecherche)}" oninput="posteRechercheSaisie(this.value)" autocomplete="off"><div class="po-res" id="po-res"></div>`);
+
+  const cartes = [];
+  // D — à traiter (Communications)
+  if (peut("communications")) {
+    const d = posteDonneesComm();
+    const items = [];
+    d.dus.slice(0, 4).forEach(c => { const min = Math.round((Date.now() - new Date(c.rappel_le).getTime()) / 60000);
+      items.push(`<span class="txt">⏰ <b>Rappeler ${echap(c.client_nom || posteTel(c.tel) || "le client")}</b>${c.contenu ? " · " + echap(String(c.contenu).slice(0, 80)) : ""}${min >= 5 ? ` <span class="po-sans">en retard de ${posteDureeRetard(min)}</span>` : ""}</span>${c.tel ? `<a class="po-mini" href="tel:+1${echap(String(c.tel).replace(/\D/g, ""))}">📞 ${echap(posteTel(c.tel))}</a>` : ""}<button type="button" class="po-mini ok" onclick="posteRappelFait('${echap(String(c.id))}')">✓ Fait</button><button type="button" class="po-mini" onclick="posteOuvrirComm('${echap(c.tel || "")}')">Fil</button>`); });
+    d.aT.slice(0, Math.max(1, 6 - items.length)).forEach(c => { const ico = c.canal === "appel_manque" ? "📵" : c.canal === "sms_in" ? "💬" : "📝";
+      items.push(`<span class="txt">${ico} <b>${echap(c.client_nom || posteTel(c.tel) || "Inconnu")}</b> · ${echap(c.canal === "appel_manque" ? "appel manqué" : c.canal === "sms_in" ? String(c.contenu || "texto").slice(0, 80) : String(c.contenu || "à traiter").slice(0, 80))}<span class="sous">${echap(posteQuand(c.cree_le))}</span></span>${c.tel ? `<a class="po-mini" href="tel:+1${echap(String(c.tel).replace(/\D/g, ""))}">📞 Rappeler</a>` : ""}<button type="button" class="po-mini" onclick="posteOuvrirComm('${echap(c.tel || "")}')">${c.canal === "sms_in" ? "Répondre" : "Ouvrir le fil"}</button>`); });
+    const compte = [d.nApp ? `<span class="rouge">📵 ${d.nApp} appel${d.nApp > 1 ? "s" : ""} manqué${d.nApp > 1 ? "s" : ""}</span>` : "", d.nSms ? `<span class="rouge">💬 ${d.nSms} texto${d.nSms > 1 ? "s" : ""}</span>` : "", d.nAutre ? `<span class="rouge">📝 ${d.nAutre} à traiter</span>` : "", d.dus.length ? `<span class="rouge">⏰ ${d.dus.length} rappel${d.dus.length > 1 ? "s" : ""} à faire</span>` : ""].filter(Boolean).join("");
+    cartes.push(carte(d.total ? "alerte" : "", "📞 À traiter", d.total, "posteOuvrirComm()", `<div class="po-compte">${compte || `<span>Rien à traiter 👍</span>`}</div>${items.map((h, i) => ligne(i, h)).join("")}`));
+  }
+  // F — aujourd'hui / demain
+  if (peut("calendrier") || peut("tableau")) {
+    const rdv = (iso) => calEvenementsDuJour(iso).map((m, i) => ligne(i, `<span class="txt"><b>${echap(m.heure || "—")}</b> ${echap(m.client || "")} · ${echap(nomMachine(m))}${m.technicien ? " · " + echap(m.technicien) : ""}${rdvSansSoumission(m) ? ` <span class="po-sans">⚠️ Sans soumission</span>` : ""}<span class="sous">${echap(libelle(m.statut))}${m.lieu ? " · 📍 " + echap(lieuTexte(m)) : ""}</span></span><button type="button" class="po-mini" onclick="calOuvrirEvt('${echap(m.id)}')">Ouvrir</button>`));
+    const L1 = rdv(auj), L2 = rdv(demIso);
+    cartes.push(carte("", "📅 Aujourd'hui", L1.length, peut("calendrier") ? "ouvrirCalendrier()" : "", (L1.length ? L1.join("") : `<div class="po-vide">Rien au calendrier aujourd'hui.</div>`) + `<div class="po-titre" style="margin-top:10px">Demain${L2.length ? `<span class="n">${L2.length}</span>` : ""}</div>` + (L2.length ? L2.join("") : `<div class="po-vide">Rien demain.</div>`)));
+  }
+  // H — pièces
+  if (peut("commandes")) {
+    const p = posteDonneesPieces();
+    const lignes = p.retards.slice(0, 3).map((x, i) => ligne(i, `<span class="txt">⚠️ <b>Relancer ${echap(x.four || "le fournisseur")}</b> · ${x.qte ? echap(x.qte) + "× " : ""}${echap(x.desc || x.num)}${x.ref ? " — " + echap(x.ref) : ""}<span class="sous">en retard de ${echap(cmdRetardTexte(x.retardMs))}</span></span><button type="button" class="po-mini" onclick="cmdRelancer('${echap(x.cle)}')">📞 Relancé</button><button type="button" class="po-mini ok" onclick="cmdRecue('${echap(x.cle)}')">✓ Reçue</button>`));
+    cartes.push(carte(p.retards.length ? "alerte" : "", "📦 Pièces", p.aCommander + p.retards.length, "ouvrirCommandes()",
+      `<div class="po-compte"><span${p.aCommander ? ' class="rouge"' : ""}>À commander : ${p.aCommander}</span><span>En route : ${p.enRoute}</span>${p.retards.length ? `<span class="rouge">⚠️ En retard : ${p.retards.length}</span>` : ""}<span>Machines en attente de pièce : ${p.attente}</span></div>${lignes.join("")}${peut("inventaire") ? `<div class="po-ligne"><button type="button" class="po-mini" onclick="posteOuvrirPrevisions()">🔮 Prévisions inventaire</button></div>` : ""}`));
+  }
+  // E — demandes de rendez-vous
+  if (peut("demandes")) {
+    const d = posteDonneesDemandes();
+    const lib = x => x.statut === "nouvelle" ? "Nouvelle" : x.statut === "autres_choix" ? "Veut d'autres choix" : x.statut === "conflit" ? "Conflit de créneau" : "Confirmée · soumission à faire";
+    const lignes = d.liste.slice(0, 5).map((x, i) => ligne(i, `<span class="txt">● <b>${echap(lib(x))}</b> · ${echap(x.nom || "Client")} · ${echap([x.annee, x.marque, x.modele].filter(Boolean).join(" ") || x.type_machine || "")}<span class="sous">${echap(posteQuand(x.cree_le))}</span></span><button type="button" class="po-mini" onclick="posteOuvrirDemande('${echap(x.id)}')">Ouvrir</button>`));
+    const extra = (d.sms ? `<div class="po-ligne"><span class="txt">💬 ${d.sms} texto${d.sms > 1 ? "s" : ""} reçu${d.sms > 1 ? "s" : ""} sans correspondance</span><button type="button" class="po-mini" onclick="window.ouvrirDemandes()">Voir</button></div>` : "")
+      + d.perdus.slice(0, 2).map(x => `<div class="po-ligne"><span class="txt po-sans">⚠️ Rendez-vous confirmé plus au calendrier : ${echap(x.nom || "client")}</span><button type="button" class="po-mini" onclick="window.__dem.remettreBon('${echap(x.id)}')">↩️ Remettre</button></div>`).join("");
+    cartes.push(carte(d.total || d.perdus.length ? "alerte" : "", "📨 Demandes de rendez-vous", d.total, "window.ouvrirDemandes()", (lignes.length ? lignes.join("") : `<div class="po-vide">Aucune demande en attente.</div>`) + extra));
+  }
+  // G — soumissions
+  if (peut("soumissions")) {
+    const s = posteDonneesSoum();
+    cartes.push(carte(s.acceptees ? "alerte" : "", "🧾 Soumissions", s.acceptees, "ouvrirSoumissions()",
+      `<div class="po-compte">${s.acceptees ? `<span class="rouge">✅ ${s.acceptees} acceptée${s.acceptees > 1 ? "s" : ""} à traiter</span>` : ""}<span>Envoyées, sans réponse : ${s.envoyees}${s.plusVieille ? " (la plus vieille : " + s.plusVieille + " j)" : ""}</span><span>Brouillons : ${s.brouillons}</span>${s.sansSoum ? `<span class="rouge">⚠️ ${s.sansSoum} rendez-vous sans soumission</span>` : ""}</div>`));
+  }
+  // I — à remettre / à facturer
+  if (peut("tableau")) {
+    const r = posteDonneesRemise();
+    const lignes = r.pretes.slice(0, 4).map((m, i) => ligne(i, `<span class="txt"><b>${echap(m.numeroBT || "")}</b> ${echap(m.client || "")} · ${echap(nomMachine(m))}<span class="sous">Facturé${m.echeance ? " · prête depuis le " + echap(formatDate(m.echeance)) : ""}</span></span>${m.tel ? `<button type="button" class="po-mini" onclick="avertirMachine('${echap(m.id)}')">📱 Aviser</button>` : ""}<button type="button" class="po-mini ok" onclick="archiver('${echap(m.id)}')">✓ Livrée</button>`));
+    cartes.push(carte("", "🏁 À remettre au client", r.pretes.length, "fermerEcranTech()",
+      (lignes.length ? lignes.join("") : `<div class="po-vide">Aucune machine facturée à remettre.</div>`) +
+      (r.aFacturer ? `<div class="po-ligne"><span class="txt">🧾 Prêt à facturer (administration) : <b>${r.aFacturer}</b>${r.plusVieux ? ` · le plus vieux : ${r.plusVieux} j` : ""}</span>${peut("messages") ? `<button type="button" class="po-mini" onclick="postePrevenirAdmin()">💬 Prévenir</button>` : ""}</div>` : "")));
+  }
+  html.push(`<div class="po-grille">${cartes.join("")}</div>`);
+
+  // J — le reste : toutes les sections ouvertes (les tuiles d'un technicien, en petit)
+  const deja = new Set(POSTE_ACTIONS.map(a => a.id).filter(id => id !== "calendrier")); deja.add("live");   // « Appel rendez-vous » n'est pas le calendrier : on garde le bouton 📅 Calendrier
+  const nonLus = chatNonLus(), nbT = tachesAFaire(e).length;
+  const autres = SECTIONS.filter(s => !deja.has(s.id) && peut(s.id)).map(s =>
+    `<button type="button" onclick="techOuvrir('${s.id}')">${s.ico} ${echap(s.id === "punch" ? "Mon punch" : s.label)}${s.id === "messages" && nonLus ? ` <span class="n" style="background:#F0736A;color:#15171A;border-radius:20px;padding:1px 7px;font-size:12px">${nonLus}</span>` : ""}${s.id === "taches" && nbT ? ` (${nbT})` : ""}</button>`);
+  if (autres.length) html.push(`<div class="po-sections">${autres.join("")}</div>`);
+
+  z.innerHTML = html.join("");
+  posteRechercheRendre();
+  techPunchRendre();
+}
+
 // ══════════════ TÂCHES (v90) ══════════════════════════════════
 // Une seule liste partagée (ligne 15). L'administration crée, assigne, modifie, supprime.
 // Tout le monde peut commencer, terminer, noter et photographier une tâche qui lui est ouverte.
@@ -22688,7 +22946,8 @@ function dureeTexte(ms) { if (ms == null) return ""; const m = Math.round(ms / 6
 function tachesTimersMaj() { document.querySelectorAll(".tch-timer[data-id]").forEach(el => { const t = tacheDe(el.dataset.id); if (t && t.statut === "encours") el.textContent = "⏱ " + dureeTexte(tacheDureeMs(t)); }); }
 function tacheJournal(t, u, texte) { (t.notes = t.notes || []).push({ quand: new Date().toISOString(), par: u ? u.nom : "", texte, systeme: true }); }
 // v99 — verrou tant que l'arrivée n'est pas punchée (technicien, homme à tout faire). L'administration n'est pas concernée.
-function techPunchRequis(e) { e = e || utilisateurCourant(); return !!e && roleDe(e) !== "admin" && droitDe(e, "punch") && !pointageOuvert(e.nom); }
+// v176 : pas de verrou pour la réception (elle répond au téléphone dès l'ouverture) — un rappel à l'accueil seulement.
+function techPunchRequis(e) { e = e || utilisateurCourant(); return !!e && roleDe(e) !== "admin" && roleDe(e) !== "reception" && droitDe(e, "punch") && !pointageOuvert(e.nom); }
 function techVerrouAvertir() { toastAviser("⛔ Veuillez vous puncher avant de commencer.", false); try { ouvrirMonPunch(); } catch (_) {} }
 function techVerrouMaj() {
   const ec = document.getElementById("ecran-tech"), v = document.getElementById("tech-verrou");
@@ -23685,7 +23944,7 @@ function activiteBouton(b, actif) {
 // Rangée sur l'écran d'accueil du technicien
 function techActivitesRendre(e, verrou) {
   const zb = document.getElementById("tech-btr"); if (!zb) return;
-  if (!e || verrou || roleDe(e) === "admin" || !droitDe(e, "punch")) { zb.style.display = "none"; zb.innerHTML = ""; return; }
+  if (!e || verrou || roleDe(e) === "admin" || roleDe(e) === "reception" || !droitDe(e, "punch")) { zb.style.display = "none"; zb.innerHTML = ""; return; }   // v176 : pas d'activités hors bon à la réception
   const enCours = activiteEnCours(e.nom);
   const surBon = techSurUnBon(e.nom);
   const total = activitesDuJourMs(e.nom);
@@ -23864,8 +24123,13 @@ function appliquerDroits() {
   document.querySelectorAll("[data-section]").forEach(el => {
     el.style.display = (!e || droitDe(e, el.dataset.section)) ? "" : "none";
   });
+  // v176 — les options se posent sur <body> : le CSS cache ce qui est marqué .cout-seul / .gestion-seul.
+  // On ne retire JAMAIS ces éléments du DOM (ex. : lirePiecesFormulaire lit le champ « Coût $ » même caché).
+  document.body.classList.toggle("role-reception", !!e && roleDe(e) === "reception");
+  document.body.classList.toggle("sans-couts", !!e && !peut("voirCouts"));
+  document.body.classList.toggle("sans-gestion", !!e && !peut("gestion"));
   const btn = document.getElementById("btn-mon-ecran");
-  if (btn) btn.classList.toggle("visible", !!e && !estAdmin());
+  if (btn) { btn.classList.toggle("visible", !!e && !estAdmin()); btn.textContent = e && roleDe(e) === "reception" ? "🛎️ Mon poste" : "🏠 Mon écran"; }   // v177
   try { tbAppliquer(); } catch (_) {}
   try { equipeRendre(); } catch (_) {}
   const qui = document.getElementById("qui-connecte");
@@ -23902,6 +24166,27 @@ function refusSection(section) {
     }
   };
 })();
+// v176 — Options « gestion » et administration : les fonctions elles-mêmes refusent, pas seulement les boutons
+// (un bouton caché par CSS reste appelable depuis la console ; ici la fonction dit non).
+function refusGestion() { toastAviser("🔒 Réservé à l'administration (option « Gestion » du dossier employé).", false); }
+(function garderGestion() {
+  const gestion = ["exporter", "importer", "activerAuto", "supprimer", "supprimerMachineCourante", "supprimerArchive", "restaurer",
+    "effacerTousClients", "importerClients", "supprimerClientCourant",
+    "soumSupprimer", "soumArchiveDetruire", "qboEnvoyerSoumission", "qboExporterCSV", "soumImporterQuickBooks", "soumExporterCatalogue", "soumPieceSuppr",
+    "invExporterCSV", "invExporterMouvements", "invExporterVentes", "invImportFichier", "invSelSupprimer", "invPoSupprimer", "invFournSupprimer",
+    "cmdDelaisOuvrir", "smsViderHisto", "smsAjouterModele", "smsSupprimerModele", "smsResetModeles", "smsModifModele"];
+  const adminSeul = ["afficherFeuille", "exporterFeuille", "exporterFeuilleTemps"];   // la feuille de temps de tout le monde
+  const envelopper = (nom, test) => {
+    const orig = window[nom];
+    if (typeof orig !== "function") return;
+    window[nom] = function () {
+      if (!test()) { refusGestion(); return; }
+      return orig.apply(this, arguments);
+    };
+  };
+  gestion.forEach(nom => envelopper(nom, () => peut("gestion")));
+  adminSeul.forEach(nom => envelopper(nom, () => !utilisateurCourant() || estAdmin()));
+})();
 // Le tableau lui-même : un technicien qui n'y a pas droit retombe sur son écran
 function retourAccueilSiInterdit() {
   const e = utilisateurCourant();
@@ -23913,10 +24198,14 @@ function empRendreDroits(e) {
   const role = document.getElementById("emp-role").value || roleDe(e || {});
   const zone = document.getElementById("emp-droits");
   const droits = e && e.droits ? e.droits : null;
-  zone.innerHTML = SECTIONS.map(s => {
-    const coche = droits && Object.prototype.hasOwnProperty.call(droits, s.id) ? !!droits[s.id] : !!DROITS_DEFAUT[role][s.id];
+  const def = DROITS_DEFAUT[role] || DROITS_DEFAUT.technicien;
+  const case_ = s => {
+    const coche = droits && Object.prototype.hasOwnProperty.call(droits, s.id) ? !!droits[s.id] : !!def[s.id];
     return `<label><input type="checkbox" data-section="${s.id}" ${coche ? "checked" : ""}> ${s.ico} ${echap(s.label)}</label>`;
-  }).join("");
+  };
+  // v176 — les Options (coûts, gestion) sont lues par empLireDroits comme les sections (même attribut data-section)
+  zone.innerHTML = SECTIONS.map(case_).join("")
+    + `<div class="emp-droits-options"><div class="emp-droits-titre">Options</div>${SOUS_DROITS.map(case_).join("")}</div>`;
 }
 function empRoleChange() {
   // Changer de rôle remet les sections au défaut de ce rôle
@@ -23927,7 +24216,8 @@ function empDroitsTous(val) {
 }
 function empDroitsDefaut() {
   const role = document.getElementById("emp-role").value;
-  document.querySelectorAll("#emp-droits input[type=checkbox]").forEach(c => { c.checked = !!DROITS_DEFAUT[role][c.dataset.section]; });
+  const def = DROITS_DEFAUT[role] || DROITS_DEFAUT.technicien;
+  document.querySelectorAll("#emp-droits input[type=checkbox]").forEach(c => { c.checked = !!def[c.dataset.section]; });
 }
 function empLireDroits() {
   const d = {};
@@ -24341,9 +24631,11 @@ async function pushRendre() {
 
   async function rapRendre() {
     const b = document.getElementById("rap-boite");
+    const g = typeof peut === "function" ? peut("gestion") : true;   // v176 : les gabarits et délais = option « Gestion »
+    if (!g && rapOnglet === "reglages") rapOnglet = "avenir";
     const t = (id, lib) => `<button class="${rapOnglet === id ? "actif" : ""}" data-o="${id}">${lib}</button>`;
     b.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><h2>🔔 Rappels SMS</h2><button class="rap-b s" id="rap-fermer">✕</button></div>
-      <div class="rap-onglets">${t("reglages", "⚙️ Réglages")}${t("avenir", "📅 RDV à venir")}${t("histo", "🕘 Historique")}</div>
+      <div class="rap-onglets">${g ? t("reglages", "⚙️ Réglages") : ""}${t("avenir", "📅 RDV à venir")}${t("histo", "🕘 Historique")}</div>
       <div id="rap-contenu">Chargement…</div>`;
     document.getElementById("rap-fermer").onclick = () => voile.classList.remove("ouvert");
     b.querySelectorAll(".rap-onglets button").forEach(x => x.onclick = () => { rapOnglet = x.dataset.o; rapRendre(); });
@@ -26380,6 +26672,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     return { dem: nDem, sms: smsNonTraites.length, total: nDem + smsNonTraites.length };
   }
   function demMajBadge() {
+    try { if (typeof estReception === "function" && estReception()) rendreEcranTechSiOuvert(); } catch (_) {}   // v177 : la carte « Demandes » de Mon poste
     const nNeuf = demNonLues();                  // du nouveau pas encore regardé → clignote
     const c = demCompteATraiter(), n = c.total;  // tant qu'il en reste à traiter → reste rouge, avec le nombre
     const detail = n ? [c.dem ? `${c.dem} demande${c.dem > 1 ? "s" : ""} à traiter` : "", c.sms ? `${c.sms} message${c.sms > 1 ? "s" : ""} reçu${c.sms > 1 ? "s" : ""} à traiter` : ""].filter(Boolean).join(" + ") : "";
@@ -26821,7 +27114,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
         <button class="rap-b s" id="dem-client">👤 Rattacher à un client</button>
         ${d.statut === "confirmee" && d.bt_id ? `<button class="rap-b p" id="dem-confirmer-sms">📲 ${d.confirmation_envoyee_le ? "Renvoyer" : "Envoyer"} la confirmation</button>` : ""}
         <button class="rap-b d" id="dem-refuser">Refuser</button>
-        <button class="rap-b d" id="dem-supprimer" title="Efface la demande et son historique">🗑️ Supprimer</button>
+        ${(typeof peut !== "function" || peut("gestion")) ? `<button class="rap-b d" id="dem-supprimer" title="Efface la demande et son historique">🗑️ Supprimer</button>` : ""}
       </div>
       <div id="dem-zone"></div>
       <div id="dem-hist" style="margin-top:14px"></div>`;
@@ -26834,7 +27127,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const bConf = document.getElementById("dem-confirmer-sms");
     if (bConf) bConf.onclick = () => demConfirmerSms(d);
     document.getElementById("dem-refuser").onclick = () => demRefuser(d);
-    document.getElementById("dem-supprimer").onclick = () => demSupprimer(d);
+    { const bSup = document.getElementById("dem-supprimer"); if (bSup) bSup.onclick = () => demSupprimer(d); }   // v176
     const bc = document.getElementById("dem-creer-client");
     if (bc) bc.onclick = async () => {
       if (!confirm(`Ajouter ${d.nom || "ce client"} au carnet?\n\n${d.tel || ""}${d.courriel ? " · " + d.courriel : ""}`)) return;
@@ -27659,6 +27952,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       p.textContent = n > 99 ? "99+" : n;
     });
     try { window.commBandeauRendre(); } catch (_) {}   // v166 : bandeau du tableau de bord
+    try { if (typeof estReception === "function" && estReception()) rendreEcranTechSiOuvert(); } catch (_) {}   // v177 : la carte « À traiter » de Mon poste
   }
   let tempsReelFait = false;
   function commTempsReel() {
@@ -27782,7 +28076,8 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
           <button class="comm-btn primaire" id="comm-nouvel-appel">📝 Note d'appel</button>
           <button class="comm-btn" id="comm-nouveau-rappel">⏰ Rappel</button>
           <button class="comm-btn" id="comm-nouveau-sms">💬 Nouveau SMS</button>
-          <button class="comm-btn" id="comm-cfg">⚙️ Réglages</button>
+          <button class="comm-btn" id="comm-messenger" title="Boîte Messenger de la page Facebook (Meta Business Suite) — s'ouvre dans un autre onglet">💬 Messenger ↗</button>
+          ${(typeof peut !== "function" || peut("gestion")) ? `<button class="comm-btn" id="comm-cfg">⚙️ Réglages</button>` : ""}
           <button class="comm-btn" id="comm-fermer">✕</button>
         </div></div>
       <div class="comm-filtres">
@@ -27804,7 +28099,8 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     const r = b.querySelector("#comm-rech"); r.oninput = () => { commRecherche = r.value; const pos = r.selectionStart; commRendre(); const r2 = document.getElementById("comm-rech"); r2.focus(); try { r2.setSelectionRange(pos, pos); } catch (_) {} };
     b.querySelectorAll(".comm-item").forEach(x => x.onclick = () => { commFil = x.dataset.tel; commRendre(); });
     b.querySelector("#comm-fermer").onclick = () => voile.classList.remove("ouvert");
-    b.querySelector("#comm-cfg").onclick = commReglages;
+    { const cfg = b.querySelector("#comm-cfg"); if (cfg) cfg.onclick = commReglages; }   // v176 : absent sans l'option « Gestion »
+    b.querySelector("#comm-messenger").onclick = () => window.open("https://business.facebook.com/latest/inbox", "mtr-messenger", "noopener");   // v176
     b.querySelector("#comm-nouvel-appel").onclick = () => commNoteAppel(commFil || "", { manuel: true });
     b.querySelector("#comm-nouveau-rappel").onclick = () => window.commRappelNouveau({ tel: commFil || "" });   // v166
     b.querySelector("#comm-nouveau-sms").onclick = () => { const t = prompt("Numéro du client (10 chiffres) :", commFil || ""); if (tel10(t)) { commFil = tel10(t); commFiltre = "tous"; commRendre(); setTimeout(() => { const z = document.getElementById("comm-rep-txt"); if (z) z.focus(); }, 50); } };
@@ -28716,10 +29012,11 @@ function ordreFile(auj) {
 }
 
 // ── L'horaire ──
-// Techniciens à l'horaire ce jour-là (heures en minutes). L'homme à tout faire ne prend pas de machines.
+// Techniciens à l'horaire ce jour-là (heures en minutes). L'homme à tout faire ne prend pas de machines ;
+// la réception (v176) non plus : elle est au téléphone, son temps sur un bon est en plus, pas planifié.
 function ordreTechsJour(iso) {
   if (estFerie(iso)) return [];
-  return (EMPLOYES || []).filter(e => e && e.actif !== false && roleDe(e) !== "tache").map(e => {
+  return (EMPLOYES || []).filter(e => e && e.actif !== false && roleDe(e) !== "tache" && roleDe(e) !== "reception").map(e => {
     const h = empHeuresJour(e, iso);
     if (!h) return null;
     const pd = pauseDiner(e, iso);
