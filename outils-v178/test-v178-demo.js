@@ -1,5 +1,5 @@
 // Démo du socle : vérifie qu'on peut piloter l'app et observer sons / vibrations / SMS (fetch smart-api) sans copier 60 lignes.
-const L = require("./test-lib-v177.js");
+const L = require("./test-lib-v178.js");
 const { ok, dodo } = L;
 (async () => {
   const S = L.creerSupabase({ tableau: [{ id: 1, donnees: [{ id: "bt-1", numeroBT: "BT-300", nom: "Maverick", client: "Marc", statut: "reparation" }] }, { id: 4, donnees: L.cp(L.EMP) }] });

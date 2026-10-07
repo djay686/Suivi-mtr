@@ -1,9 +1,9 @@
 #!/bin/bash
 # run-all.sh — non-régression Suivi-Garage-Partage (test-v159.js … test-v1xx.js, chacun contre index.html).
-#   outils-v177/run-all.sh [./index.html] [motif]
+#   outils-v178/run-all.sh [./index.html] [motif]
 #     motif = expression régulière sur le nom du test (ex. 'v17[0-9]'). Sort avec le nombre de fichiers en échec.
 #   Exécuteur par défaut : Chromium / Playwright (run-in-chromium.js), sans jsdom.
-#     Avec jsdom installé : RUNNER=node NODE_PATH=/chemin/node_modules outils-v177/run-all.sh
+#     Avec jsdom installé : RUNNER=node NODE_PATH=/chemin/node_modules outils-v178/run-all.sh
 #   MTR_FAKE_NOW="2026-10-07T10:00:00-04:00" simule un mercredi (test-v168b.js échoue le samedi et le dimanche, ligne 141).
 #   SKIP (regex, défaut test-v171.js) : test-v171.js exige bt089/ et bt089.zip, absents du dépôt.
 R=$(cd "$(dirname "$0")" && pwd); cd "$R/.." || exit 2

@@ -1,5 +1,5 @@
-// test-lib-v177.js — socle commun des tests v177 (remplace les ~15 copies du faux Supabase / du chargement de l'app).
-// Fonctionne tel quel avec jsdom (node) ET dans Chromium. NODE_PATH=…/jsdom/node_modules node test-v177-xxx.js ./index.html
+// test-lib-v178.js — socle commun des tests v178 (remplace les ~15 copies du faux Supabase / du chargement de l'app).
+// Fonctionne tel quel avec jsdom (node) ET dans Chromium. NODE_PATH=…/jsdom/node_modules node test-v178-xxx.js ./index.html
 const { JSDOM } = require("jsdom");
 const fs = require("fs");
 const cp = (x) => (x == null ? x : JSON.parse(JSON.stringify(x)));
