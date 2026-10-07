@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MTR — Ajouter à la soumission depuis la boutique BRP
 // @namespace    mtrperformance.ca
-// @version      2.3
-// @description  Bouton « + Ajouter » sur chaque pièce du catalogue BRP (Sea-Doo, Ski-Doo, Can-Am) → panier de la soumission MTR. Apprend le chemin de navigation vers la machine et le rejoue à l'ouverture.
+// @version      2.4
+// @description  Bouton « + Ajouter » sur chaque pièce du catalogue BRP (Sea-Doo, Ski-Doo, Can-Am) → panier de la soumission MTR, ou pièces à commander d'un bon de travail (v178). Apprend le chemin de navigation vers la machine et le rejoue à l'ouverture.
 // @match        https://sea-doo-shop.brp.com/*
 // @match        https://ski-doo-shop.brp.com/*
 // @match        https://can-am-shop.brp.com/*
@@ -18,7 +18,8 @@
   COMMENT ÇA MARCHE
   - Dans le catalogue, chaque ligne de pièce (numéro + prix) reçoit un bouton
     jaune « + Ajouter ». Le clic envoie numéro, nom et prix à l'outil de
-    soumission MTR ouvert dans l'autre onglet. Rien n'est copié d'avance.
+    soumission MTR (ou au bon de travail d'où la recherche a été lancée : v178)
+    ouvert dans l'autre onglet. Rien n'est copié d'avance.
   - Le catalogue ARI ne met pas la machine dans l'adresse. Alors le script
     NOTE les clics de navigation (année, famille, modèle, diagramme…) et les
     envoie avec la pièce. L'outil mémorise ce « chemin » pour la machine et,
@@ -34,7 +35,7 @@
   const RX_PRIX = /(\d{1,3}(?:[  ]?\d{3})*(?:[.,]\d{2}))\s*\$|\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2}))/;
   const MARQUE  = location.hostname.includes('ski-doo') ? 'skidoo' : location.hostname.includes('can-am') ? 'canam' : 'seadoo';
   const EN_HAUT = window === window.top;
-  const VERSION = '2.3';
+  const VERSION = '2.4';
   const RX_MODELE = /\b(19|20)\d{2}\s+\d{4,}[A-Z0-9]{2,}\b/;   // « …, 2015 00060FA00 » ou « … NO CAT - 2025 00041SB00 » : un modèle avec ses codes
 
   /* ---------- style ---------- */
@@ -58,6 +59,8 @@
   document.body.appendChild(bar);
   /* ce que le formateur nous dit : la case choisie, la dernière liaison faite, la prochaine case */
   let cible = null, relie = null, prochaine = null, dernierMsg = '', formateurLie = false, total = 0;
+  let cibleApp = '';   // v2.4 : où l'application range les pièces (« BT-123 · pièces à commander » ou « soumission SO-0123 »), dit par MTR_PANIER ; vide = application plus ancienne
+  const dest = () => cibleApp || 'soumission';
   const BTN = 'all:unset;margin-top:6px;margin-right:6px;padding:6px 10px;border-radius:6px;background:#F5B400;color:#172029;font:700 12px system-ui;cursor:pointer';
   const BTN2 = BTN + ';background:#EDF0F3;color:#172029';
   const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -71,7 +74,7 @@
       // mode technicien : une pastille discrète, aucun bouton (rien à accrocher par erreur)
       bar.className = 'mtr-bar mini';
       const o = opener(); const lie = o && !o.closed;
-      bar.textContent = 'MTR v' + VERSION + (lie ? ' · lié à la soumission' : ' · non lié') + (total ? ' · ' + total + ' pièce' + (total > 1 ? 's' : '') : '');
+      bar.textContent = 'MTR v' + VERSION + (lie ? ' · lié → ' + dest() : ' · non lié') + (total ? ' · ' + total + ' pièce' + (total > 1 ? 's' : '') : '');
       return;
     }
     bar.className = 'mtr-bar' + (EN_HAUT ? ' haut' : '');
@@ -355,6 +358,7 @@
     let etapes = null; try { etapes = JSON.parse(decodeURIComponent(m[1])); } catch (e) {}
     if (!etapes || !etapes.length) return;
     recuChemin = false; dejaRejoue = false;
+    demanderPanier();   // v2.4 : fenêtre réutilisée (l'adresse change sans rechargement) : l'application apprend que le script est là et renvoie sa cible
     const envoyerChemin = () => {
       if (recuChemin) return;
       window.postMessage({ type: 'MTR_CHEMIN', etapes }, '*');
@@ -600,10 +604,12 @@
   window.addEventListener('message', e => {
     const d = e.data; if (!d || d.type !== 'MTR_PANIER' || !Array.isArray(d.lignes)) return;
     if (!d.relaye) relayerCadres(d);
+    const nouvelleCible = d.cible ? String(d.cible) : '';
+    if (nouvelleCible !== cibleApp) { cibleApp = nouvelleCible; statut(dernierMsg || 'Prêt.'); }   // v2.4 : la pastille suit la cible
     panier.clear(); d.lignes.forEach(l => { if (l && l.pn) panier.set(String(l.pn), Number(l.qte) || 1); if (l && l.pn && l.repere && !reperes.has(String(l.pn))) reperes.set(String(l.pn), l.repere); });
     rafraichirPanier();
   });
-  function demanderPanier() { const o = opener(); if (o && !o.closed) { try { o.postMessage({ type: 'MTR_PANIER_DEMANDE' }, '*'); } catch (e) {} } }
+  function demanderPanier() { const o = opener(); if (o && !o.closed) { try { o.postMessage({ type: 'MTR_PANIER_DEMANDE', ver: VERSION }, '*'); } catch (e) {} } }
 
   function scanner() {
     let n = 0; const cibles = [];
@@ -618,17 +624,17 @@
       const p = extraire(ligne); if (!p.pn) return;
       for (const b of boutonsAjout()) { if (b.dataset.pn === p.pn && b.isConnected && ligne.contains(b)) { vus.add(ligne); return; } }
       vus.add(ligne); ligne.classList.add('mtr-ligne');
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'mtr-add'; b.dataset.pn = p.pn; b.setAttribute('style', STYLE_BTN); b.textContent = '+ Ajouter'; b.title = `Ajouter ${p.pn} à la soumission MTR`;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'mtr-add'; b.dataset.pn = p.pn; b.setAttribute('style', STYLE_BTN); b.textContent = '+ Ajouter'; b.title = `Ajouter ${p.pn} à l'outil MTR (bon de travail ou soumission)`;
       b.addEventListener('click', e => {
         e.preventDefault(); e.stopPropagation();
         const piece = extraire(ligne);
-        const ok = versOutil({ type: 'MTR_AJOUT_PIECE', ...piece, marque: MARQUE, source: 'brp', date: new Date().toISOString().slice(0, 10), url: location.href, chemin: cheminMachine() });
+        const ok = versOutil({ type: 'MTR_AJOUT_PIECE', ...piece, marque: MARQUE, source: 'brp', date: new Date().toISOString().slice(0, 10), url: location.href, chemin: cheminMachine(), ver: VERSION });
         panier.set(piece.pn, (panier.get(piece.pn) || 0) + 1); if (piece.repere) reperes.set(piece.pn, piece.repere);
         // « + Ajouter » depuis l'aperçu d'un repère : la zone survolée juste avant est celle de cette pièce
         if (derniereZone && Date.now() - derniereZone.t < 15000) { const ims = grandesImages(); const rz = derniereZone.el.getBoundingClientRect(); const im = imageSous(rz, ims); if (im && !derniereZone.el.closest('.mtr-ligne')) { zonesConnues.set(derniereZone.el, piece.pn); apprendre(piece.pn, derniereZone.el, im); } }
         b.textContent = '✓ Ajouté'; b.setAttribute('style', STYLE_OK); rafraichirPanier();
-        statut(ok ? `<b>${piece.pn}</b> ${piece.nom} envoyé à la soumission MTR.` : `<b>${piece.pn}</b> envoyé — l'outil MTR s'est ouvert dans un autre onglet.`);
-        toast(ok ? '✓ ' + piece.nom + ' → soumission' : '✓ ' + piece.nom + ' → l’application s’est ouverte dans un autre onglet');
+        statut(ok ? `<b>${piece.pn}</b> ${piece.nom} envoyé → ${esc(dest())}.` : `<b>${piece.pn}</b> envoyé — l'outil MTR s'est ouvert dans un autre onglet.`);
+        toast(ok ? '✓ ' + piece.nom + ' → ' + dest() : '✓ ' + piece.nom + ' → l’application s’est ouverte dans un autre onglet');
       });
       // à côté du prix si on le trouve, sinon en fin de ligne
       const feuilles = [...tousElements(ligne)].filter(x => x.children.length === 0 && /\$|Appelez|Call/i.test(x.textContent || ''));
@@ -649,7 +655,7 @@
     if (estListeDiagrammes() && cheminMachine().length >= 2) envoyerMachine(false);
     moissonner();
     const ok = machineEnvoyee ? ' ✓ machine mémorisée' : '';
-    if (total) statut(`MTR v${VERSION} : <b>${total}</b> pièce${total > 1 ? 's' : ''} avec « + Ajouter ». ${opener() ? 'Outil lié.' : '<b>Outil non lié</b>.'}${ok}<br>Chemin : ${cheminMachine().map(c => c.t).join(' › ') || '—'}`);
+    if (total) statut(`MTR v${VERSION} : <b>${total}</b> pièce${total > 1 ? 's' : ''} avec « + Ajouter ». ${opener() ? 'Outil lié → ' + esc(dest()) + '.' : '<b>Outil non lié</b>.'}${ok}<br>Chemin : ${cheminMachine().map(c => c.t).join(' › ') || '—'}`);
     else if (!dejaRejoue) statut(`MTR v${VERSION} (${ou}) : ${estListeDiagrammes() ? 'liste des diagrammes' : 'aucune ligne de pièce ici'}.${ok} Chemin : ${cheminMachine().map(c => c.t).join(' › ') || '—'}`);
   }
   passe(); demanderPanier();
