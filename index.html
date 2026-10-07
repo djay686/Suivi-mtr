@@ -6109,6 +6109,68 @@ function toastAviser(texte, ok) {
 let avenirDeplie = false;
 function basculerAvenirPlusTard() { avenirDeplie = !avenirDeplie; afficher(); }
 
+// ── v178-TAB : jours depuis l'arrivée, tri des colonnes et temps restant sur les cartes (A7) ──
+// Ces fonctions sont dans le script principal (comme les helpers S0b) : le premier afficher() passe avant le chargement
+// des blocs suivants, et la carte doit être juste dès le premier rendu. Elles ne dépendent que des helpers S0b.
+// Tri d'une colonne : le plus ancien en haut (clé = arriveeDe(m).date, comparée en temps réel), sans date en bas, stable.
+// liveDabord : les bons en direct (session chrono ouverte) passent en tête, eux aussi du plus ancien au plus récent.
+function arriveeTrier(liste, liveDabord) {
+  try {
+    const deco = liste.map((m, i) => {
+      const a = arriveeDe(m);
+      return { m, i, t: a ? dateLisibleMs(a.date) : null, live: !!liveDabord && liveSessions(m).length > 0 };
+    });
+    deco.sort((x, y) => {
+      if (x.live !== y.live) return x.live ? -1 : 1;
+      if (x.t === null || y.t === null) return x.t === y.t ? x.i - y.i : (x.t === null ? 1 : -1);   // pas de date : en bas
+      if (x.t < y.t) return -1;                                                                    // < et >, jamais une soustraction
+      if (x.t > y.t) return 1;
+      return x.i - y.i;                                                                            // égalité : ordre d'origine (tri stable)
+    });
+    return deco.map(d => d.m);
+  } catch (_) { return liste; }
+}
+// « 🚜 Arrivée depuis N jours » (« aujourd'hui » à 0, singulier à 1) ; date approximative (repli sur la création du bon) :
+// « 🚜 ≈ N jours » en gris, jamais en rouge ; rouge (vieux) seulement à ARRIVEE_JOURS_VIEUX jours et plus avec une date sûre.
+function arriveeBadgeHTML(m) {
+  try {
+    const a = arriveeDe(m), j = arriveeJours(m);
+    if (!a || j === null) return "";
+    const nj = j === 0 ? "aujourd'hui" : j + " jour" + (j > 1 ? "s" : "");
+    const le = new Date(a.date).toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
+    if (a.source === "creeLe") return `<span class="badge badge-arrivee approx" title="Date approximative : le bon a été créé le ${echap(le)}, l'arrivée de la machine n'a pas été notée">🚜 ≈ ${nj}</span>`;
+    return `<span class="badge badge-arrivee${j >= ARRIVEE_JOURS_VIEUX ? " vieux" : ""}" title="Arrivée le ${echap(le)}">🚜 Arrivée ${j === 0 ? nj : "depuis " + nj}</span>`;
+  } catch (_) { return ""; }
+}
+// Heure à laquelle le technicien a noté le temps restant : « 16:40 », « hier 16:40 » ou « 05/10 16:40 »
+function resteQuandTxt(iso) {
+  const t = dateLisibleMs(iso);
+  if (t === null) return "";
+  const d = new Date(t), hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  const hier = new Date(); hier.setDate(hier.getDate() - 1);
+  const j = isoLocal(d);
+  if (j === isoLocal(new Date())) return hm;
+  if (j === isoLocal(hier)) return "hier " + hm;
+  return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + " " + hm;
+}
+// Ligne de la carte sur le reste à faire, à UN seul endroit : « ⏳ Reste ~1 h 30 (noté 16:40) : texte » quand le technicien a noté un
+// temps restant (resteMinutesDe) ; sans minutes la carte reste « ⏳ Reste : texte ». Q24 : sur une carte EN DIRECT sans aucune estimation,
+// repli gris « ⏱ ~X (estimé) » (durée de la fiche − temps punché, via ordreResteAuto) ; jamais rouge, jamais sur les autres colonnes.
+function resteBadgeHTML(m) {
+  try {
+    const r = m && m.resteAFaire, texte = r && r.texte ? String(r.texte) : "";
+    const min = resteMinutesDe(m);
+    let h = "";
+    if (min) h += `<span class="badge badge-reste">⏳ Reste ~${dureeTxtLocale(min)} (noté ${resteQuandTxt(r.quand)})${texte ? " : " + echap(texte).slice(0, 90) : ""}</span>`;
+    else if (texte) h += `<span class="badge badge-reste">⏳ Reste : ${echap(texte).slice(0, 90)}</span>`;
+    if (!min && m.statut === "reparation" && liveSessions(m).length && !(r && Number(r.minutes) > 0) && typeof ordreResteAuto === "function") {
+      const e = ordreResteAuto(m);
+      if (e > 0) h += `<span class="badge badge-estime" title="Estimation : durée de la fiche moins le temps déjà punché (le technicien n'a pas noté de temps restant)">⏱ ~${dureeTxtLocale(e)} (estimé)</span>`;
+    }
+    return h ? `<div class="badges">${h}</div>` : "";
+  } catch (_) { return ""; }
+}
+
 function afficher() {
   const q = document.getElementById("recherche").value.toLowerCase();
   const filtrees = machines.filter(m =>
@@ -6128,6 +6190,7 @@ function afficher() {
   // Colonnes
   document.getElementById("colonnes").innerHTML = STATUTS.filter(s => tbVisible("colonnes", s.id)).map(s => {
     let liste = filtrees.filter(m => m.statut === s.id);
+    if (s.id === "sansrdv" || s.id === "attente" || s.id === "reparation") liste = arriveeTrier(liste, s.id === "reparation");   // v178-TAB : le plus ancien en haut ; Réparation : bons en direct en tête
     if (s.id === "avenir") {
       liste = [...liste].sort((a, b) => {
         const ka = a.echeance ? a.echeance + "T" + (a.heure || "23:59") : "9999";
@@ -10985,10 +11048,11 @@ function carteHTML(m, statut) {
       <button class="btn-toggle ${m.pieceComplete ? "vert" : "rouge"}${(!piecesOK && !m.pieceComplete) ? " bloque" : ""}" onclick="basculer('${m.id}','pieceComplete')">${m.pieceComplete ? "✓" : (!piecesOK ? "🔒" : "✗")} Pièce complète${compteurP}</button>` : "";
   const badgePieces = (m.pieces && m.pieces.length)
     ? `<span class="badge-pieces ${nbP.ok === nbP.total ? "completes" : ""}">📦 ${nbP.ok}/${nbP.total} pièce(s)</span>` : "";
+  const badgeArr = arriveeBadgeHTML(m);   // v178-TAB : « 🚜 Arrivée depuis N jours » (script principal, avant afficher)
   const badges = m.statut !== "avenir" ? [
-      m.machineArrivee ? `<span class="badge">🚜 Machine sur place</span>` : "",
+      badgeArr || (m.machineArrivee ? `<span class="badge">🚜 Machine sur place</span>` : ""),   // v178-TAB : la date remplace « Machine sur place » quand elle existe
       m.pieceComplete ? `<span class="badge">📦 Pièces complètes</span>` : "",
-    ].filter(Boolean).join("") : "";
+    ].filter(Boolean).join("") : badgeArr;   // v178-TAB : une carte « À venir » arrivée gagne une ligne .badges de plus
   // v143 — dans « Prêt à facturer » et « Assurance », le vrai compteur est le badge
   // juste en dessous : on laisse la date d'échéance sous son nom honnête.
   const dateLbl = m.statut === "prete" ? "Prête depuis" : "Échéance";
@@ -11026,7 +11090,7 @@ function carteHTML(m, statut) {
       ${m.echeance ? `<div class="echeance${retard ? " retard" : ""}">${retard ? "⚠️ " : ""}${dateAffichee}${retard ? " — en retard" : ""}</div>` : ""}
       ${rdvSansSoumission(m) ? `<div class="badges"><span class="badge badge-sans-soum" title="${RDV_SANS_SOUM_TITRE_V157}">⚠️ Sans soumission</span></div>` : ""}
       ${sLive ? `<div class="badges"><span class="badge badge-live">🔴 ${echap(sLive.tech)} en direct</span></div>` : ""}
-      ${m.travauxTermines ? `<div class="badges"><span class="badge badge-termine">✅ Travaux terminés${m.travauxTerminesPar ? " · " + echap(m.travauxTerminesPar) : ""}</span></div>` : (m.resteAFaire && m.resteAFaire.texte ? `<div class="badges"><span class="badge badge-reste">⏳ Reste : ${echap(m.resteAFaire.texte).slice(0, 90)}</span></div>` : "")}
+      ${m.travauxTermines ? `<div class="badges"><span class="badge badge-termine">✅ Travaux terminés${m.travauxTerminesPar ? " · " + echap(m.travauxTerminesPar) : ""}</span></div>` : /* v178-TAB : « ⏳ Reste ~1 h 30 (noté 16:40) : texte » + repli gris « (estimé) » en direct */ resteBadgeHTML(m)}
       ${badgeAttente ? `<div class="badges">${badgeAttente}</div>` : ""}
       ${badgeFacture ? `<div class="badges">${badgeFacture}</div>` : ""}
       ${badgePieces ? `<div class="badges">${badgePieces}</div>` : ""}
@@ -11077,6 +11141,7 @@ function deplacer(id, statut) {
   }
   if (!confirm(`Déplacer « ${m.nom} »\nde « ${libelle(m.statut)} » vers « ${libelle(statut)} » ?`)) return;
   if (statut === "attente" && !attenteVerifierPieces(m)) return;
+  try { arriveePoser(m, statut); } catch (_) {}   // v178-TAB : date d'arrivée (« À venir » → Sans rendez-vous) ; lit l'ancien statut, donc avant la ligne suivante
   m.statut = statut;
   // v143 — horodatage d'entrée, pour afficher depuis combien de temps un bon
   // dort dans « Prêt à facturer » ou dans « Assurance »
@@ -11583,6 +11648,7 @@ function valider() {
   if (idEdition) {
     const m = machines.find(x => x.id === idEdition);
     const dureeAvant = m.dureeEstimee;
+    try { arriveePoser(m, donnees.statut); } catch (_) {}   // v178-TAB : « À venir » → colonne d'atelier par le formulaire : date d'arrivée posée (contourne deplacer)
     Object.assign(m, donnees);
     // La main-d'œuvre de la soumission liée suit la durée du rendez-vous
     if (typeof rdvSyncSoumission === "function") rdvSyncSoumission(m, dureeAvant);
@@ -24440,6 +24506,8 @@ async function demarrerDonnees() {
   marketMajBadge();               // v92 : pastille « Marketplace » (articles en vente)
   invMajDatalist();               // autocomplétion des n° de pièce partout
   //@@v178-TAB demarrerDonnees
+  // v178-TAB : les « N jours » du tableau avancent à minuit. On ne redessine qu'au changement de jour civil, jamais chaque minute (un re-rendu casse le glisser-déposer et le défilement sur iPad).
+  try { let jourVu = isoLocal(new Date()); setInterval(() => { try { const j = isoLocal(new Date()); if (j !== jourVu) { jourVu = j; afficher(); } } catch (_) {} }, 60000); } catch (_) {}
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -30644,6 +30712,11 @@ setInterval(() => {
 <style id="v178-TAB">
 /* v178-TAB : jours depuis l'arrivée (A7), repli « estimé » (Q24) et pastilles de temps restant à la fermeture de session (A8).
    Deux classes de spécificité : la règle .badge générique (plus haut dans le CSS principal) vient APRÈS .badge-live / .badge-reste. */
+.badge.badge-arrivee { background: var(--surface-2); color: var(--encre); font-weight: 700; }
+.badge.badge-arrivee.vieux { background: var(--f-danger); color: var(--danger); font-weight: 800; }          /* 7 jours et plus, date sûre */
+.badge.badge-arrivee.approx { background: var(--surface-2); color: var(--sourdine); font-weight: 600; }      /* date approximative : gris, jamais rouge */
+.badge.badge-arrivee.approx.vieux { background: var(--surface-2); color: var(--sourdine); font-weight: 600; }
+.badge.badge-estime { background: var(--surface-2); color: var(--sourdine); font-weight: 600; white-space: normal; }
 .live-fin-mins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0 10px; }
 .live-fin-min { min-height: 44px; padding: 8px 6px; border: 1.5px solid var(--bordure); border-radius: 10px; background: var(--surface-2); color: var(--encre); font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
 .live-fin-min:hover { border-color: var(--accent); }
@@ -30658,6 +30731,16 @@ setInterval(() => {
 // ═══════════ v178-TAB : date d'arrivée (A7-3) et temps restant à la fermeture de session (A8) ═══════════
 // Le tri, les badges et la ligne « Reste » de la carte sont dans le script principal (arriveeTrier, arriveeBadgeHTML, resteBadgeHTML) :
 // le premier afficher() passe avant le chargement de ce bloc.
+
+// A7-3 : un bon qui quitte « À venir » pour une colonne d'atelier SANS que la machine ait été marquée arrivée ni qu'une date d'arrivée existe
+// reçoit arriveeLe = maintenant. Appelée AVANT l'affectation du nouveau statut (m.statut est l'ancien) par deplacer et par le formulaire
+// d'édition. Rien dans liveConnecterFinal ni basculer : le premier punch sert de repli, et un ancien bon arrivé garde son compteur.
+function arriveePoser(m, vers) {
+  if (!m || m.statut !== "avenir") return;
+  if (vers !== "sansrdv" && vers !== "attente" && vers !== "reparation") return;
+  if (m.machineArrivee || m.arriveeLe) return;
+  m.arriveeLe = new Date().toISOString();
+}
 
 // A8-2 : pastilles de temps restant de la fenêtre « Les travaux sont-ils terminés ? → Non, pas encore ».
 let liveFinMin = 0;                 // temps restant choisi, en minutes entières (0 = aucun choix : l'enregistrement est refusé)
