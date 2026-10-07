@@ -74,7 +74,7 @@ const EMPX = [{ nom: "Jason", nomFamille: "Blouin", role: "admin", actif: true }
   await groupe("0. Structure et contrats", async () => {
   ok((HTML.match(/function liveVoir\(/g) || []).length === 1, "liveVoir : exactement UNE définition dans index.html");
   ok(["//@@v178-A3 liveVoir", "//@@v178-A3 notes", "//@@v178-A11 proposerNote"].every(a => HTML.split(a).length === 2), "les ancres A3 / A11 sont intactes (une occurrence chacune)");
-  { const i = HTML.indexOf("//@@v178-A11 proposerNote"); const apres = HTML.slice(i, i + 200).split("\n");
+  { const i = HTML.indexOf("//@@v178-A11 proposerNote"); const apres = HTML.slice(i, i + 800).split("\n");   // v178 : assez long pour la ligne de SON
     const iFerme = apres.findIndex((l, k) => k > 0 && /^\s*\}\s*$/.test(l));   // v178 : SON ajoute sa ligne jouerSon sous l'ancre
     ok(iFerme >= 1 && iFerme <= 3 && /if \(bcAppel\) bcAppel\.onmessage/.test(apres[iFerme + 1]), "l'ancre A11 est à la fin du corps de proposerNote (au plus 2 lignes avant l'accolade ; SON y ajoute la sienne)"); }
   ok(typeof w.commNoteAppel === "function" && w.__comm.note === w.commNoteAppel && typeof w.__comm.comms === "function" && typeof w.__comm.rappelAction === "function" && typeof w.ouvrirCommunications === "function",
