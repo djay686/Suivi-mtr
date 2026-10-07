@@ -215,7 +215,7 @@ const proche = (a, b, tol = 1.6) => Math.abs(a - b) <= tol;
        "… liseré rouge sur le bloc de la 2e voie seulement");
     ok(/Double réservation/.test(rouges[0].title) && /Jason/.test(rouges[0].title), "… l'info-bulle explique (« " + rouges[0].title.split("\n").pop() + " »)");
     ok(colJour("Gwendal").querySelectorAll(".cal-jbloc").length === 1 && !colJour("Gwendal").querySelector(".double-resa"), "… Gwendal n'est pas touché");
-    ok(parseFloat(col.style.minWidth) >= 150 || col.style.minWidth === "", "colonne à 2 voies : largeur minimale gardée (« " + (col.style.minWidth || "CSS") + " »)");
+    ok(col.style.minWidth === "150px" && !colJour("Gwendal").style.minWidth, "colonne à 2 voies : largeur minimale 150 px posée (max(150, 2 × 72)) ; une colonne à 1 voie garde celle du CSS (« " + col.style.minWidth + " »)");
   });
 
   // ══════ 8. Dépôt à la bonne heure (data-hdeb) ══════
