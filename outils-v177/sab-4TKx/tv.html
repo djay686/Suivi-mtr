@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TV atelier — MTR Performance</title>
+<link rel="icon" href="favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@500;600;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+<style>
+/* v169 — TV du lift : lecture seule, lisible d'en dessous d'un véhicule. Tout est en unités d'écran (vw / vh) :
+   le même rendu sur un Fire TV qui annonce 960 × 540 ou 1920 × 1080. Aucun bouton : on pilote depuis le cell / la tablette. */
+:root{
+  --bg:#0B0C0E; --panneau:#15181C; --panneau-2:#1D2126; --ligne:#2C3138; --ink:#F4F4F2; --muted:#A3A9B1;
+  --or:#F5B02A; --or-doux:#3A2F12; --ok:#4FD38F; --ok-doux:#123524; --warn:#FFB547; --warn-doux:#3D2A0E; --danger:#FF6B5E; --danger-doux:#431A16;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif; --body:"Barlow","Segoe UI",Roboto,Arial,sans-serif;
+  --k:1;   /* réduit tout seul quand le contenu déborde */
+  font-size:calc(var(--k) * min(2.25vw, 4vh));
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--body);overflow:hidden;cursor:none}
+body{line-height:1.25;-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+b.v{color:var(--or);font-family:var(--display);font-weight:700;font-size:1.15em;white-space:nowrap}
+
+/* ── connexion (une seule fois) ── */
+.cx{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);cursor:auto}
+.cx-boite{width:min(94vw,52rem);max-height:96vh;overflow:auto;background:var(--panneau);border:.1rem solid var(--ligne);border-top:.35rem solid var(--or);border-radius:.6rem;padding:1rem 1.4rem;display:flex;flex-direction:column;gap:.6rem;font-size:.8rem}
+.cx-tete{display:flex;align-items:center;gap:.8rem}
+.cx img{width:3rem;height:3rem;border-radius:.5rem}
+.cx h1{font-family:var(--display);font-size:1.6rem;margin:0}
+.cx p{margin:0;color:var(--muted);font-size:.75rem;line-height:1.4}
+.jum{display:flex;gap:1.4rem;align-items:center}
+.jum-g{display:flex;flex-direction:column;align-items:center;gap:.4rem;flex:0 0 auto}
+.jum-et{font-family:var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-size:.8rem}
+.jum-code{font-family:var(--display);font-weight:700;font-size:3.4rem;letter-spacing:.12em;color:var(--or);line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.jum-qr{background:#fff;padding:.4rem;border-radius:.4rem;line-height:0}
+.jum-qr img,.jum-qr canvas{width:9rem!important;height:9rem!important;image-rendering:pixelated}
+.jum-etapes{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:.5rem;font-size:.95rem;line-height:1.35}
+.jum-etapes b{color:var(--ink)}
+.cx-mdp summary{cursor:pointer;color:var(--muted);font-size:.8rem}
+.cx form{display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap;margin-top:.5rem}
+.cx label{display:flex;flex-direction:column;gap:.2rem;font-weight:600;flex:1 1 10rem}
+.cx input{font:inherit;font-size:.9rem;padding:.5rem .6rem;border-radius:.4rem;border:.1rem solid var(--ligne);background:var(--panneau-2);color:var(--ink)}
+.cx button{font:inherit;font-weight:700;font-size:.9rem;padding:.55rem 1rem;border:0;border-radius:.4rem;background:var(--or);color:#15171A;cursor:pointer}
+.cx .err{color:var(--danger);font-weight:600}
+.cx .jum-msg{color:var(--warn)}
+.cx-note{font-size:.7rem!important}
+
+/* ── écran ── */
+.ecran{position:fixed;inset:0;display:flex;flex-direction:column}
+.tete{display:flex;align-items:center;gap:1rem;padding:.45rem 1rem;background:#15181C;border-bottom:.3rem solid var(--or);min-height:0}
+.tete .bt{font-family:var(--display);font-weight:700;font-size:2.4rem;color:var(--or);line-height:1;white-space:nowrap}
+.tete .qui{min-width:0;flex:1}
+.tete .qui b{display:block;font-family:var(--display);font-size:1.6rem;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tete .qui span{display:block;font-size:.95rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tete .droite{display:flex;align-items:center;gap:1rem;white-space:nowrap}
+.chrono{text-align:right}
+.chrono b{display:block;font-family:var(--display);font-size:1.25rem}
+.chrono span{font-family:var(--display);font-size:2rem;font-variant-numeric:tabular-nums;color:var(--ok)}
+.chrono.pause span{color:var(--warn)} .chrono.arret span{color:var(--muted)}
+.etape-no{font-family:var(--display);font-size:2.2rem;font-weight:700;color:var(--or)}
+.horloge{font-family:var(--display);font-size:1.5rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.corps{flex:1;min-height:0;padding:.7rem 1rem .5rem;overflow:hidden}
+.grille{display:grid;gap:.8rem;height:100%;grid-template-columns:1fr 1fr;align-content:start}
+.grille.une{grid-template-columns:1fr}
+.col{display:flex;flex-direction:column;gap:.8rem;min-width:0}
+.bloc{background:var(--panneau);border:.08rem solid var(--ligne);border-radius:.5rem;padding:.55rem .8rem}
+.bloc h2{margin:0 0 .3rem;font-family:var(--display);font-size:1.15rem;letter-spacing:.06em;text-transform:uppercase;color:var(--or);display:flex;justify-content:space-between;gap:.6rem}
+.bloc h2 small{color:var(--muted);letter-spacing:0;text-transform:none;font-size:.9em}
+.liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.3rem;font-size:1.05rem}
+.liste li{display:flex;gap:.5rem;align-items:flex-start}
+.liste .c{flex:0 0 1.2em;font-weight:700;text-align:center}
+.liste li.fait{color:var(--muted)} .liste li.fait .c{color:var(--ok)}
+.liste li.fait .t{text-decoration:line-through;text-decoration-thickness:.06em}
+.liste .t{min-width:0}
+.cotes{display:inline-flex;gap:.3rem;margin-left:.4rem;flex-wrap:wrap}
+.cotes i{font-style:normal;font-family:var(--display);font-weight:700;font-size:1.05em;border:.1rem solid var(--ligne);border-radius:.3rem;padding:0 .5rem;color:var(--muted)}
+.cotes i.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-doux)}
+.pieces .q{font-family:var(--display);font-weight:700;min-width:1.8em;color:var(--or)}
+.pieces .etat{margin-left:auto;font-size:.8em;white-space:nowrap;color:var(--muted)}
+.pieces li.util .etat{color:var(--ok)}
+.travaux{font-size:1.15rem;white-space:pre-wrap}
+.reste{border-color:var(--warn);background:var(--warn-doux);color:var(--warn);font-weight:700;font-size:1.05rem}
+.notes{font-size:.9rem;color:var(--muted)} .notes li .c{color:var(--ok)}
+/* procédure */
+.proc{display:grid;gap:1rem;height:100%;grid-template-columns:1fr}
+.proc.fig{grid-template-columns:1.35fr 1fr}
+.proc .sur{font-family:var(--display);font-size:1.05rem;letter-spacing:.1em;text-transform:uppercase;color:var(--or);font-weight:700}
+.proc h1{font-family:var(--display);font-size:2.3rem;line-height:1.02;margin:.1rem 0 .25rem}
+.proc .pourquoi{font-size:1rem;color:var(--muted);margin:0 0 .5rem}
+.specs{display:flex;flex-wrap:wrap;gap:.5rem;margin:.2rem 0 .6rem}
+.spec{background:var(--panneau);border:.08rem solid var(--ligne);border-left:.3rem solid var(--or);border-radius:.4rem;padding:.2rem .6rem}
+.spec small{display:block;font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.spec b{font-family:var(--display);font-size:1.6rem;color:var(--ink)}
+.spec em{display:block;font-style:normal;font-size:.7rem;color:var(--muted)}
+.alerte{border-radius:.4rem;padding:.35rem .6rem;margin:0 0 .45rem;font-size:1rem;font-weight:600;border:.1rem solid}
+.alerte.danger{background:var(--danger-doux);border-color:var(--danger);color:#FFD9D4}
+.alerte.warn{background:var(--warn-doux);border-color:var(--warn);color:#FFE3B8}
+.alerte.note{background:var(--panneau-2);border-color:var(--ligne);color:var(--ink)}
+.mesures{display:flex;flex-direction:column;gap:.3rem;margin-top:.5rem;font-size:1rem}
+.mesures div{display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap}
+.mesures .val{font-family:var(--display);font-size:1.4rem;font-weight:700}
+.mesures .ok{color:var(--ok)} .mesures .warn{color:var(--warn)} .mesures .bad{color:var(--danger)} .mesures .vide{color:var(--muted)}
+.figure{background:#fff;border-radius:.5rem;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.figure img{width:100%;height:100%;object-fit:contain;min-height:0;flex:1}
+.figure .leg{background:var(--panneau);color:var(--ink);font-size:.8rem;padding:.25rem .5rem}
+.figure .att{color:#333;padding:1rem;font-size:.9rem}
+/* v175 — la ligne en cours (▲ ▼), cochée avec OK ; ses figures (badge à droite) s'ouvrent dans le panneau */
+.proc{grid-template-rows:minmax(0,1fr)}
+.proc .col{min-height:0;overflow:hidden}
+.liste.cases{flex:0 1 auto;min-height:0;overflow:hidden;position:relative;gap:.1rem}
+.liste.cases li{align-items:center;padding:.06rem .35rem;border-radius:.35rem;cursor:pointer}
+.liste.cases li.ici{box-shadow:inset 0 0 0 .12rem var(--or);background:var(--or-doux)}   /* le cadre ne prend pas de place : autant de lignes à l'écran qu'avant */
+.liste.cases li.ici .c{color:var(--or)}
+.liste.cases li.fait.ici .c{color:var(--ok)}
+.liste .fb{margin-left:auto;flex:none;font-family:var(--display);font-weight:700;font-size:.85em;color:var(--muted);border:.08rem solid var(--ligne);border-radius:.3rem;padding:0 .45rem;white-space:nowrap;text-decoration:none}
+.liste .fb.vu{color:#15171A;background:var(--or);border-color:var(--or)}
+.plus{flex:none;font-size:.7rem;line-height:1.1;color:var(--muted);text-align:right;margin-top:.1rem}
+.pied{display:flex;align-items:center;gap:.8rem;padding:.3rem 1rem;font-size:.7rem;color:var(--muted);border-top:.08rem solid var(--ligne)}
+.pied .pts{display:flex;gap:.3rem;flex:1}
+.pied .pts i{height:.45rem;flex:1;border-radius:.2rem;background:var(--panneau-2)}
+.pied .pts i.fait{background:var(--ok)} .pied .pts i.ici{background:var(--or)}
+.pied .rx{width:.6rem;height:.6rem;border-radius:50%;background:var(--ok);display:inline-block}
+.pied .rx.non{background:var(--danger)}
+/* attente */
+.attente{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;text-align:center}
+.attente img{width:7rem;height:7rem;border-radius:1rem;opacity:.9}
+.attente .h{font-family:var(--display);font-size:6rem;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
+.attente .n{font-family:var(--display);font-size:1.6rem;color:var(--or)}
+.attente p{margin:0;color:var(--muted);font-size:.95rem;max-width:40rem}
+.bulle{position:fixed;left:50%;bottom:2.4rem;transform:translateX(-50%);background:var(--or);color:#15171A;font-weight:700;font-size:1.1rem;padding:.4rem 1rem;border-radius:.5rem}
+</style>
+</head>
+<body>
+<div class="cx" id="cx" hidden>
+  <div class="cx-boite">
+    <div class="cx-tete"><img src="icon-192.png" alt="MTR Performance"><div><h1>📺 Brancher la TV</h1><p id="cx-ecran"></p></div></div>
+    <div class="jum">
+      <div class="jum-g">
+        <div class="jum-et">Code</div>
+        <div class="jum-code" id="jum-code">…</div>
+        <div class="jum-qr" id="jum-qr" hidden></div>
+      </div>
+      <ol class="jum-etapes">
+        <li>Sur ton cell ou la tablette, <b>scanne le code QR</b> avec la caméra,<br>ou dans l'app : <b>☰ Menu → 📺 Brancher une TV</b>, et entre le code.</li>
+        <li>Touche <b>Brancher</b> : la TV se connecte avec <b>ton</b> compte et suit ton punch.</li>
+        <li>Rien à taper ici. C'est à faire une seule fois : la TV reste branchée.</li>
+      </ol>
+    </div>
+    <div class="err jum-msg" id="jum-msg" role="status"></div>
+    <details class="cx-mdp" id="cx-details">
+      <summary>ou avec ton mot de passe</summary>
+      <form id="cx-form" autocomplete="on">
+        <label>Ton nom d'utilisateur<input id="cx-id" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="p.nom"></label>
+        <label>Mot de passe<input id="cx-mdp" name="password" type="password" autocomplete="current-password"></label>
+        <button type="submit" id="cx-go">Brancher</button>
+      </form>
+    </details>
+    <div class="err" id="cx-err" role="alert"></div>
+    <p class="cx-note">Ton compte de technicien, le même que dans l'app. Pas de compte d'administration sur un écran visible de tous.</p>
+  </div>
+</div>
+<div class="ecran" id="ecran" hidden>
+  <header class="tete" id="tete"></header>
+  <main class="corps" id="corps"></main>
+  <footer class="pied" id="pied"></footer>
+</div>
+<div class="bulle" id="bulle" hidden></div>
+<script>
+(function () {
+"use strict";
+var SUPABASE_URL = "https://riwamsdpynpbjfadajlz.supabase.co";
+var SUPABASE_CLE = "sb_publishable_N0jacdCTsgmF7PUIGhqmBA_DtcL1b00";
+var DOMAINE = "@mtrperformance.local";
+var PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+var params = new URLSearchParams(location.search);
+var ECRAN = String(params.get("ecran") || params.get("tv") || window.__TV_ECRAN || "lift").toLowerCase().replace(/[^a-z0-9_-]/g, "") || "lift";
+
+var sb = null, ecran = null, machines = [], proc = null, etat = {}, canal = null, canalProc = null, connecte = true, derniereMaj = 0;
+var FIGS = {}, pdfDoc = null, pdfPromesse = null;
+
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function fmt(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b class="v">$1</b>'); }
+function $(id) { return document.getElementById(id); }
+function num(v) { var n = parseFloat(String(v).replace(",", ".")); return isNaN(n) ? null : n; }
+function hms(ms) { var t = Math.max(0, Math.floor(ms / 1000)); return String(Math.floor(t / 3600)).padStart(2, "0") + ":" + String(Math.floor(t % 3600 / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); }
+function heure() { var d = new Date(); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
+function bulle(t) { var b = $("bulle"); b.textContent = t; b.hidden = false; clearTimeout(bulle.t); bulle.t = setTimeout(function () { b.hidden = true; }, 2500); }
+
+/* ================= CONNEXION : le compte d'un technicien (le même que dans l'app) =================
+   Pas de compte à part : un technicien branche la TV avec son compte, et la TV suit son punch.
+   Jamais un compte d'administration sur un écran visible de tous. */
+var branchePar = "";   // nom de l'employé dont le compte ouvre la TV
+function normId(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9.\-]/g, "").replace(/\.{2,}/g, ".").replace(/^\.|\.$/g, ""); }
+function identPour(prenom, nomFamille) { var p = normId(prenom), n = normId(nomFamille).replace(/\./g, ""); return p && n ? p[0] + "." + n : (p || n || ""); }
+function roleDe(e) { if (!e) return "technicien"; if (e.role === "admin" || e.role === "technicien" || e.role === "tache") return e.role; return e.nom === "Jason" ? "admin" : "technicien"; }
+// Le compte connecté est-il un employé actif, pas administrateur ? (mêmes règles que l'app et les fonctions serveur)
+function verifierCompte(user) {
+  var ident = String((user && user.email) || "").split("@")[0].toLowerCase();
+  return Promise.resolve(sb.from("tableau").select("donnees").eq("id", 4).maybeSingle()).then(function (r) {
+    var L = r && r.data && Array.isArray(r.data.donnees) ? r.data.donnees : [];
+    var e = L.filter(function (x) { return x && String(x.identifiant || identPour(x.nom, x.nomFamille)).toLowerCase() === ident; })[0] || null;
+    if (!e || e.actif === false) return { ok: false, msg: "Ce compte n'est pas un employé actif de l'atelier." };
+    if (roleDe(e) === "admin") return { ok: false, msg: "Pas de compte d'administration sur un écran visible de tous : branche la TV avec le compte d'un technicien." };
+    return { ok: true, nom: e.nom };
+  });
+}
+function montrerConnexion(msg) {
+  $("ecran").hidden = true; $("cx").hidden = false;
+  $("cx-ecran").textContent = "Écran : " + ECRAN + (location.host ? " — " + location.host : "");
+  $("cx-err").textContent = msg || "";
+  if (!jum) jumDemander();
+}
+
+/* ---- Brancher avec un code : la TV affiche un code, le technicien le confirme sur son cell (fonction « tv-jumelage ») ---- */
+var jum = null, jumMinuterie = null, JUM_MS = window.__TV_JUM_MS || 3000;
+var QRLIB = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
+function urlApp() { return /^https?:$/.test(location.protocol) ? location.origin : "https://atelier.mtrperformance.ca"; }
+function fct(corps) {
+  return Promise.resolve(sb.functions.invoke("tv-jumelage", { body: corps })).then(function (r) {
+    if (r && r.error) {
+      var ctx = r.error.context;
+      if (ctx && typeof ctx.json === "function") return Promise.resolve(ctx.json()).then(function (j) { throw new Error((j && j.erreur) || r.error.message); }, function () { throw new Error(r.error.message); });
+      throw new Error(r.error.message || "fonction injoignable");
+    }
+    return (r && r.data) || {};
+  });
+}
+function dessinerQR(texte) {
+  var z = $("jum-qr"); z.innerHTML = ""; z.hidden = true;
+  var faire = function () {
+    try { new window.QRCode(z, { text: texte, width: 256, height: 256, colorDark: "#000000", colorLight: "#ffffff", correctLevel: window.QRCode.CorrectLevel ? window.QRCode.CorrectLevel.M : 0 }); z.hidden = false; }
+    catch (e) { z.hidden = true; }
+  };
+  if (window.QRCode) { faire(); return; }
+  var s = document.createElement("script"); s.src = QRLIB; s.onload = faire; s.onerror = function () { z.hidden = true; };
+  document.head.appendChild(s);
+}
+function jumDemander() {
+  clearTimeout(jumMinuterie); jum = null;
+  if ($("cx").hidden) return;
+  $("jum-msg").textContent = ""; $("jum-code").textContent = "…"; $("jum-qr").hidden = true;
+  fct({ action: "demander", ecran: ECRAN }).then(function (d) {
+    if (!d.code || !d.secret) throw new Error(d.erreur || "pas de code");
+    jum = { code: String(d.code), secret: String(d.secret), expire: Date.parse(d.expire_le) || (Date.now() + 600000) };
+    $("jum-code").textContent = jum.code.slice(0, 3) + " " + jum.code.slice(3);
+    dessinerQR(urlApp() + "/?tvcode=" + jum.code);
+    jumAttendre();
+  }).catch(function (e) {
+    jum = null; $("jum-code").textContent = "—"; $("jum-qr").hidden = true;
+    $("jum-msg").textContent = "Code indisponible (" + (e.message || e) + "). Branche la TV avec ton mot de passe ci-dessous.";
+    $("cx-details").open = true;
+  });
+}
+// La TV demande toutes les 3 s si le technicien a confirmé (seulement tant que le code vit : 10 minutes)
+function jumAttendre() {
+  clearTimeout(jumMinuterie);
+  if (!jum || $("cx").hidden) return;
+  if (Date.now() > jum.expire) { jumExpire(); return; }
+  jumMinuterie = setTimeout(function () {
+    var j = jum; if (!j || $("cx").hidden) return;
+    fct({ action: "attendre", code: j.code, secret: j.secret }).then(function (d) {
+      if (jum !== j) return;
+      if (d.etat === "pret" && d.token_hash) return jumBrancher(d.token_hash);
+      if (d.etat === "expire" || d.etat === "inconnu") { jumExpire(); return; }
+      jumAttendre();
+    }, function () { if (jum === j) jumAttendre(); });   // réseau : on réessaie
+  }, JUM_MS);
+}
+function jumExpire() {
+  clearTimeout(jumMinuterie); jum = null;
+  $("jum-code").textContent = "—"; $("jum-qr").hidden = true;
+  $("jum-msg").textContent = "Code expiré. Appuie sur le bouton du centre de la télécommande pour en afficher un nouveau.";
+}
+function jumBrancher(tokenHash) {
+  clearTimeout(jumMinuterie); jum = null;
+  $("jum-msg").textContent = "Branchement…";
+  return Promise.resolve(sb.auth.verifyOtp({ token_hash: tokenHash, type: "magiclink" })).then(function (r) {
+    var u = r && r.data && r.data.user;
+    if (!u) throw new Error((r && r.error && r.error.message) || "connexion refusée");
+    return verifierCompte(u).then(function (v) {
+      if (!v.ok) { sb.auth.signOut(); montrerConnexion(v.msg); return; }
+      branchePar = v.nom;
+      $("jum-msg").textContent = "";
+      demarrer(true);   // elle suit le punch de celui qui l'a branchée
+    });
+  }).catch(function (e) { $("jum-msg").textContent = "Branchement refusé (" + (e.message || e) + ") : nouveau code…"; setTimeout(jumDemander, 3000); });
+}
+$("cx-form").addEventListener("submit", function (e) {
+  e.preventDefault();
+  var id = $("cx-id").value.trim(), mdp = $("cx-mdp").value;
+  if (!id || !mdp) { $("cx-err").textContent = "Ton nom d'utilisateur et ton mot de passe."; return; }
+  $("cx-go").disabled = true; $("cx-err").textContent = "";
+  sb.auth.signInWithPassword({ email: id.indexOf("@") >= 0 ? id.toLowerCase() : normId(id) + DOMAINE, password: mdp }).then(function (r) {
+    $("cx-mdp").value = "";
+    if (!r || !r.data || !r.data.user) { $("cx-go").disabled = false; $("cx-err").textContent = "Refusé : nom d'utilisateur ou mot de passe."; return; }
+    return verifierCompte(r.data.user).then(function (v) {
+      $("cx-go").disabled = false;
+      if (!v.ok) { sb.auth.signOut(); $("cx-err").textContent = v.msg; return; }
+      branchePar = v.nom;
+      demarrer(true);   // branchée à l'instant : elle suit le punch de ce technicien
+    });
+  }).catch(function () { $("cx-go").disabled = false; $("cx-err").textContent = "Pas de réseau."; });
+});
+
+/* ================= DONNÉES ================= */
+function charger() {
+  return sb.from("ecrans").select("*").eq("id", ECRAN).maybeSingle().then(function (r) {
+    if (r.error) throw r.error;
+    if (r.data) return r.data;
+    // Premier branchement de cet écran : il s'inscrit (le cell et la tablette le proposeront)
+    var neuf = { id: ECRAN, nom: ECRAN === "lift" ? "Lift 2 colonnes" : ECRAN, mode: "rien", etape: 0 };
+    return sb.from("ecrans").upsert(neuf).then(function () { return neuf; });
+  }).then(function (e) {
+    ecran = e;
+    return sb.from("tableau").select("donnees").eq("id", 1).maybeSingle();
+  }).then(function (r) {
+    if (r && r.data && Array.isArray(r.data.donnees)) machines = r.data.donnees;
+    return chargerProc();
+  }).then(function () { connecte = true; derniereMaj = Date.now(); rendre(); }, function (err) {
+    connecte = false;
+    if (err && /ecrans|42P01|does not exist|schema cache/i.test(String(err.message || err.code || ""))) { montrerErreur("La table « ecrans » n'existe pas encore : exécute edge/ecrans.sql dans Supabase (voir GUIDE-TV.md)."); return; }
+    if (ecran) rendre(); else montrerErreur("Serveur injoignable pour l'instant — nouvel essai automatique chaque minute.");
+  });
+}
+function chargerProc() {
+  var pid = ecran && ecran.mode === "procedure" ? ecran.procedure_id : null;
+  if (!pid) { proc = null; etat = {}; ecouterProc(null); return Promise.resolve(); }
+  return Promise.all([
+    sb.from("procedures").select("*").eq("id", pid).maybeSingle(),
+    sb.from("procedure_etat").select("cle,valeur").eq("procedure_id", pid),
+  ]).then(function (rs) {
+    proc = rs[0] && rs[0].data ? rs[0].data : null;
+    etat = {};
+    ((rs[1] && rs[1].data) || []).forEach(function (l) { etat[l.cle] = l.valeur; });
+    if (!proc || !canalProc || canalProc.__pid !== pid) ecouterProc(proc ? pid : null);
+  });
+}
+function montrerErreur(t) { $("cx").hidden = true; $("ecran").hidden = false; $("tete").innerHTML = ""; $("tete").hidden = true; $("pied").innerHTML = ""; $("corps").innerHTML = '<div class="attente"><div class="n">⚠️ ' + esc(t) + '</div></div>'; }
+
+/* ================= TEMPS RÉEL (+ relecture de secours) ================= */
+function ecouter() {
+  if (canal) try { sb.removeChannel(canal); } catch (e) {}
+  canal = sb.channel("tv-" + ECRAN + "-" + Date.now())
+    .on("postgres_changes", { event: "*", schema: "public", table: "ecrans", filter: "id=eq." + ECRAN }, function (p) {
+      if (!p.new || !p.new.id) return;
+      var avant = ecran || {};
+      ecran = p.new;
+      var change = ["mode", "procedure_id", "tech", "bt_id"].some(function (k) { return String(avant[k] || "") !== String(ecran[k] || ""); });
+      if (change) chargerProc().then(rendre); else if (String(avant.etape) !== String(ecran.etape)) rendre();
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "tableau", filter: "id=eq.1" }, function (p) {
+      if (p.new && Array.isArray(p.new.donnees)) { machines = p.new.donnees; derniereMaj = Date.now(); rendre(); }
+    })
+    .subscribe(function (s) {
+      var avant = connecte;
+      connecte = s === "SUBSCRIBED";
+      if (connecte && !avant) charger();   // rebranché : on relit ce qu'on a pu manquer
+      majPied();
+    });
+}
+function ecouterProc(pid) {
+  if (canalProc) { try { sb.removeChannel(canalProc); } catch (e) {} canalProc = null; }
+  if (!pid) return;
+  var recu = function (cle, valeur) { if (valeur == null) delete etat[cle]; else etat[cle] = valeur; rendre(); };
+  canalProc = sb.channel("tv-proc-" + pid + "-" + Date.now())
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "procedure_etat", filter: "procedure_id=eq." + pid }, function (p) { if (p.new) recu(p.new.cle, p.new.valeur); })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "procedure_etat", filter: "procedure_id=eq." + pid }, function (p) { if (p.new) recu(p.new.cle, p.new.valeur); })
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: "procedure_etat" }, function (p) { if (p.old && p.old.procedure_id === pid) recu(p.old.cle, null); })
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "procedures", filter: "id=eq." + pid }, function (p) { if (p.new) { proc = p.new; rendre(); } })
+    .subscribe();
+  canalProc.__pid = pid;
+}
+
+/* ================= CE QUE LA TV MONTRE ================= */
+// Le technicien suivi : celui qui a envoyé à la TV, sinon celui dont le compte a branché la TV
+function techSuivi() { return (ecran && ecran.tech) || branchePar || ""; }
+// Le BT en cours du technicien suivi : son punch (session ouverte) le plus récent ; sinon le dernier bon affiché
+function btPunch() {
+  var tech = techSuivi(), meilleur = null, debut = "";
+  if (tech) machines.forEach(function (m) {
+    if (!m || m.statut === "archive" || !Array.isArray(m.chrono)) return;
+    m.chrono.forEach(function (s) { if (s && !s.fin && s.tech === tech && String(s.debut || "") > debut) { debut = String(s.debut || ""); meilleur = m; } });
+  });
+  return meilleur;
+}
+function btCourant() {
+  if (!ecran) return null;
+  return btPunch() || (ecran.bt_id ? (machines.filter(function (m) { return m && m.id === ecran.bt_id; })[0] || null) : null);
+}
+// Le bon du punch devient « le dernier bon » de l'écran : quand le punch se ferme, la TV le garde (même après un rechargement)
+function retenirBon(m) {
+  if (!m || !ecran || ecran.bt_id === m.id) return;
+  ecran.bt_id = m.id;
+  sb.from("ecrans").update({ bt_id: m.id }).eq("id", ECRAN).then(function () {}, function () {});
+}
+function sessionDe(m, tech) {
+  var ouvertes = (m && Array.isArray(m.chrono) ? m.chrono : []).filter(function (s) { return s && !s.fin; });
+  return ouvertes.filter(function (s) { return s.tech === tech; }).pop() || ouvertes[ouvertes.length - 1] || null;
+}
+function enPause(s) { return !!(s && Array.isArray(s.pauses) && s.pauses.length && !s.pauses[s.pauses.length - 1].r); }
+function duree(s) {
+  if (!s || !s.debut) return 0;
+  var brut = (s.fin ? new Date(s.fin) : new Date()) - new Date(s.debut);
+  var pause = (s.pauses || []).reduce(function (t, p) { return t + ((p.r ? new Date(p.r) : new Date()) - new Date(p.p)); }, 0);
+  return Math.max(0, brut - pause);
+}
+function nomMachine(m) { return m.nom || [m.annee, m.marque, m.modele].filter(Boolean).join(" ") || "Machine"; }
+
+function rendre() {
+  if (!ecran) return;
+  $("cx").hidden = true; $("ecran").hidden = false;
+  if (ecran.mode === "procedure" && proc && proc.contenu) rendreProc();
+  else if (ecran.mode !== "rien" && btCourant()) { var p = btPunch(); if (p) retenirBon(p); rendreBT(btCourant()); }
+  else rendreAttente();
+  majPied();
+  ajuster();
+  suivreLigne();
+}
+function teteChrono(m) {
+  var s = sessionDe(m, techSuivi()), cls = s ? (enPause(s) ? "pause" : "") : "arret";
+  return '<div class="chrono ' + cls + '"><b>' + esc(s ? s.tech : techSuivi()) + (s ? (enPause(s) ? " · en pause" : "") : " · pas de punch en cours") + '</b>' +
+    '<span data-chrono>' + (s ? hms(duree(s)) : "—") + '</span></div>';
+}
+function rendreBT(m) {
+  $("tete").innerHTML = '<span class="bt">' + esc(m.numeroBT || "BT") + '</span><div class="qui"><b>' + esc(nomMachine(m)) + '</b><span>' + esc(m.client || "") + (m.numeroMachine ? " · 🏷️ " + esc(m.numeroMachine) : "") + '</span></div>' +
+    '<div class="droite">' + teteChrono(m) + '<span class="horloge" data-horloge>' + heure() + '</span></div>';
+  var g = [], d = [];
+  if (m.travaux) g.push('<section class="bloc"><h2>Travaux demandés</h2><div class="travaux">' + fmt(m.travaux) + '</div></section>');
+  if (m.resteAFaire && m.resteAFaire.texte) g.push('<section class="bloc reste">⏳ Reste à faire : ' + esc(m.resteAFaire.texte) + '</section>');
+  (Array.isArray(m.checklists) ? m.checklists : []).forEach(function (cl) {
+    var L = cl.lignes || [], faits = L.filter(function (l) { return l.fait; }).length;
+    d.push('<section class="bloc"><h2>☑️ ' + esc(cl.nom || "Checklist") + '<small>' + faits + ' / ' + L.length + (cl.signature ? " · signée ✅" : "") + '</small></h2><ul class="liste">' +
+      L.map(function (l) { return '<li class="' + (l.fait ? "fait" : "") + '"><span class="c">' + (l.fait ? "✔" : "☐") + '</span><span class="t">' + esc(l.texte) + '</span></li>'; }).join("") + '</ul></section>');
+  });
+  var P = (Array.isArray(m.pieces) ? m.pieces : []).filter(function (p) { return p && (p.nom || p.num); });
+  if (P.length) d.push('<section class="bloc"><h2>📦 Pièces<small>' + P.filter(function (p) { return p.utilise; }).length + ' / ' + P.length + ' utilisée(s)</small></h2><ul class="liste pieces">' +
+    P.map(function (p) { return '<li class="' + (p.utilise ? "util" : "") + '"><span class="q">' + esc(p.qte || 1) + '×</span><span class="t">' + esc(p.nom || "") + (p.num ? ' <span style="color:var(--muted)">' + esc(p.num) + '</span>' : "") + '</span><span class="etat">' + (p.utilise ? "✔ utilisée" : p.coche ? "📦 reçue" : "⏳ à recevoir") + '</span></li>'; }).join("") + '</ul></section>');
+  var N = (Array.isArray(m.notesLive) ? m.notesLive : []).slice(-3).reverse();
+  if (N.length) g.push('<section class="bloc"><h2>📝 Dernières notes</h2><ul class="liste notes">' + N.map(function (n) { return '<li><span class="c">✔</span><span class="t">' + esc(n.texte) + (n.tech ? " — " + esc(n.tech) : "") + '</span></li>'; }).join("") + '</ul></section>');
+  if (!g.length && !d.length) g.push('<section class="bloc"><div class="travaux">Aucun travail inscrit sur ce bon.</div></section>');
+  var deux = g.length && d.length;
+  $("corps").innerHTML = '<div class="grille' + (deux ? "" : " une") + '"><div class="col">' + (deux ? g : g.concat(d)).join("") + '</div>' + (deux ? '<div class="col">' + d.join("") + '</div>' : "") + '</div>';
+}
+
+/* ---- procédure : étape en cours, coches et mesures partagées ---- */
+function etapes() { return (proc && proc.contenu && Array.isArray(proc.contenu.etapes)) ? proc.contenu.etapes : []; }
+function etapeNo() { var n = etapes().length; return Math.max(0, Math.min(n - 1, parseInt(ecran.etape, 10) || 0)); }
+function clesEtape(e) {
+  var out = [];
+  (e.items || []).forEach(function (it, i) {
+    var id = (e.id || "s") + "-" + i, cotes = it && it.cotes && it.cotes.length ? it.cotes : null;
+    if (cotes) cotes.forEach(function (c) { out.push(id + "-" + c); }); else out.push(id);
+  });
+  return out;
+}
+function coche(cle) { var v = etat["c:" + cle]; return !!(v && v.done); }
+function valeur(id) { var v = etat["f:" + id]; return v && v.v != null ? String(v.v) : ""; }
+function verdict(f, v) {
+  if (v == null || v === "") return null;
+  if (f.type === "nombre") {
+    var n = num(v); if (n === null) return ["warn", "Entrer un nombre"];
+    var niv = f.hors_niveau || "bad";
+    if (f.min != null && n < f.min) return [niv, f.hors_message || "Sous le minimum"];
+    if (f.max != null && n > f.max) return [niv, f.hors_message || "Au-dessus du maximum"];
+    if (f.min != null || f.max != null) return ["ok", f.ok_message || "Dans la spec"];
+    return null;
+  }
+  if (f.type === "choix") { var o = (f.options || []).filter(function (x) { return x.valeur === v; })[0]; return o && o.verdict ? [o.verdict, o.message || ""] : null; }
+  return null;
+}
+function rendreProc() {
+  var c = proc.contenu, b = c.bt || {}, E = etapes(), i = etapeNo(), e = E[i] || {};
+  var m = machines.filter(function (x) { return x && x.id === proc.bt_id; })[0] || null;
+  $("tete").innerHTML = '<span class="bt">' + esc(b.numero || (m && m.numeroBT) || "BT") + '</span><div class="qui"><b>' + esc(c.titre || "Procédure") + '</b><span>' + esc([b.machine, b.client].filter(Boolean).join(" · ")) + '</span></div>' +
+    '<div class="droite"><span class="etape-no">' + (i === 0 ? "Préparation" : "Étape " + i + " / " + (E.length - 1)) + '</span><span class="horloge" data-horloge>' + heure() + '</span></div>';
+  var h = '<div class="sur">' + (i === 0 ? "Avant de commencer" : "Étape " + i + " · " + esc(e.court || "")) + '</div><h1>' + esc(e.titre || "") + '</h1>' + (e.pourquoi ? '<p class="pourquoi">' + esc(e.pourquoi) + '</p>' : "");
+  if ((e.specs || []).length) h += '<div class="specs">' + e.specs.map(function (s) { return '<div class="spec"><small>' + esc(s.nom) + '</small><b>' + esc(s.valeur) + '</b>' + (s.detail ? '<em>' + esc(s.detail) + '</em>' : "") + '</div>'; }).join("") + '</div>';
+  (e.alertes || []).forEach(function (a) { h += '<div class="alerte ' + esc(a.niveau || "note") + '">' + (a.niveau === "danger" ? "⚠️ " : "") + esc(a.texte) + '</div>'; });
+  // mesures hors limite : en haut, en rouge
+  (e.champs || []).forEach(function (f) { var r = verdict(f, valeur(f.id)); if (r && r[0] !== "ok" && r[1]) h += '<div class="alerte ' + (r[0] === "bad" ? "danger" : "warn") + '">' + esc(f.label) + " : " + esc(valeur(f.id)) + (f.unite ? " " + esc(f.unite) : "") + " — " + esc(r[1]) + '</div>'; });
+  // v175 : la ligne en cours (▲ ▼) est encadrée ; OK la coche ; le badge à droite dit combien de figures lui sont reliées
+  var L = ligneCourante(), FL = L >= 0 ? figsLigne(c, e, e.items[L]) : [];
+  var cleListe = (proc.id || "") + ":" + i, ulAvant = $("cases");
+  var scrollAvant = ulAvant && ulAvant.getAttribute("data-cle") === cleListe ? ulAvant.scrollTop : 0;   // même étape : la liste ne saute pas
+  if ((e.items || []).length) h += '<ul class="liste cases" id="cases" data-cle="' + esc(cleListe) + '">' + e.items.map(function (it, k) {
+    var id = (e.id || "s") + "-" + k, cotes = it && it.cotes && it.cotes.length ? it.cotes : null;
+    var fait = ligneFaite(e, k), nf = figsLigne(c, e, it).length;
+    return '<li data-ligne="' + k + '" class="' + (fait ? "fait" : "") + (k === L ? " ici" : "") + '"><span class="c">' + (fait ? "✔" : "☐") + '</span><span class="t">' + fmt(typeof it === "string" ? it : it.t) +
+      (cotes ? '<span class="cotes">' + cotes.map(function (s) { return '<i class="' + (coche(id + "-" + s) ? "ok" : "") + '">' + esc(s) + '</i>'; }).join("") + '</span>' : "") + '</span>' +
+      (nf ? '<span class="fb' + (k === L ? " vu" : "") + '" data-fig="' + k + '">📷 ' + (nf > 1 ? nf + " fig." : "Fig.") + '</span>' : "") + '</li>';
+  }).join("") + '</ul><div class="plus" id="plus" hidden></div>';
+  if ((e.champs || []).length) h += '<div class="mesures">' + e.champs.map(function (f) {
+    var v = valeur(f.id), r = verdict(f, v);
+    return '<div><span>' + esc(f.label) + ' :</span><span class="val ' + (v ? (r ? r[0] : "") : "vide") + '">' + (v ? esc(v) + (f.unite ? " " + esc(f.unite) : "") : "à mesurer") + '</span>' + (r && r[1] ? '<span class="' + r[0] + '">' + esc(r[1]) + '</span>' : "") + '</div>';
+  }).join("") + '</div>';
+  // Figures : celles de la ligne en cours si elle en a (v175), sinon celles de l'étape ; photos (procédure importée, v171) ou pages du manuel
+  var F = FL.length ? FL : figsEtape(c, e), man = c.manuel || null, cleF = (proc.id || "") + ":" + i + ":" + (FL.length ? "l" + L : "e");
+  if (cleF !== figCle) { figCle = cleF; figNo = 0; }
+  if (figNo >= F.length) figNo = 0;
+  var fig = F[figNo] || null, imf = fig && fig.image ? (c.images || {})[fig.image] : null;
+  var avecFig = !!fig, touche = (e.items || []).length ? "⏯" : "▲▼";
+  $("corps").innerHTML = '<div class="proc' + (avecFig ? " fig" : "") + '"><div class="col">' + h + '</div>' +
+    (avecFig ? '<div class="figure"><img id="fig-img" alt="" hidden><div class="att" id="fig-att">' + (imf ? "Figure…" : man.chemin ? "Page " + esc(fig.page) + " du manuel…" : "Manuel « " + esc(man.titre || "") + " », page " + esc(fig.page) + " (PDF pas dans l'app)") + '</div>' +
+      '<div class="leg">' + (FL.length ? "📷 " : "") + esc(fig.legende || "") + (fig.page ? " · p. " + esc(fig.page) : "") + (F.length > 1 ? ' · <b>' + (figNo + 1) + " / " + F.length + '</b> ' + touche : "") + '</div></div>' : "") + '</div>';
+  if ($("cases")) $("cases").scrollTop = scrollAvant;
+  if (imf) afficherPhoto(imf.chemin);
+  else if (avecFig && man.chemin) afficherPage(man, fig.page);
+}
+var figCle = "", figNo = 0, LIENS = {};
+function figsEtape(c, e) {
+  var man = c.manuel || null, im = c.images || {};
+  return ((e && e.figures) || []).filter(function (f) { return f && (f.image ? !!(im[f.image] && im[f.image].chemin) : !!(man && f.page)); });
+}
+// Photo d'une procédure importée : stockage privé « procedures », lien signé gardé 11 h
+function afficherPhoto(chemin) {
+  var img = $("fig-img"); if (img) img.setAttribute("data-c", chemin);
+  var poser = function (url) { var im = $("fig-img"), att = $("fig-att"); if (!im || im.getAttribute("data-c") !== chemin) return; im.src = url; im.hidden = false; if (att) att.hidden = true; };
+  var l = LIENS[chemin]; if (l && l.exp > Date.now()) { poser(l.url); return; }
+  Promise.resolve(sb.storage.from("procedures").createSignedUrl(chemin, 12 * 3600)).then(function (r) {
+    if (!r || r.error || !r.data || !r.data.signedUrl) throw new Error("lien refusé");
+    LIENS[chemin] = { url: r.data.signedUrl, exp: Date.now() + 11 * 3600000 };
+    poser(r.data.signedUrl);
+  }).catch(function () { var att = $("fig-att"); if (att) att.textContent = "Figure : impossible de l'afficher."; });
+}
+// v175 — Les figures reliées à une ligne (ses photos, sinon ses pages du manuel), avec la légende de l'étape
+function figsLigne(c, e, it) {
+  if (!it || typeof it !== "object") return [];
+  var man = c.manuel || null, im = c.images || {}, vus = {};
+  var trouver = function (id) {
+    var f = ((e && e.figures) || []).filter(function (x) { return x && x.image === id; })[0];
+    if (!f) (c.etapes || []).some(function (x) { f = ((x && x.figures) || []).filter(function (y) { return y && y.image === id; })[0]; return !!f; });
+    return f || {};
+  };
+  var L = (it.figs || []).map(function (id) { var f = trouver(id); return { image: id, page: f.page || null, legende: f.legende || (im[id] && im[id].legende) || "" }; })
+    .concat((it.pages || []).map(function (p) { return { page: p, legende: "" }; }));
+  return L.filter(function (f) {
+    var cle = f.image ? "i:" + f.image : "p:" + f.page;
+    if (vus[cle]) return false; vus[cle] = true;
+    return f.image ? !!(im[f.image] && im[f.image].chemin) : !!(man && f.page);
+  });
+}
+// Ce qu'on voit à droite : les figures de la ligne en cours si elle en a, sinon celles de l'étape
+function figsAffichees() {
+  if (!ecran || ecran.mode !== "procedure" || !proc || !proc.contenu) return [];
+  var e = etapes()[etapeNo()], L = ligneCourante(), FL = L >= 0 ? figsLigne(proc.contenu, e, e.items[L]) : [];
+  return FL.length ? FL : figsEtape(proc.contenu, e);
+}
+function changerFigure(delta) {
+  if (!ecran || ecran.mode !== "procedure" || !proc || !proc.contenu) return false;
+  var F = figsAffichees();
+  if (F.length < 2) return false;
+  figNo = (figNo + delta + F.length) % F.length;
+  rendre();
+  bulle("Figure " + (figNo + 1) + " / " + F.length);
+  return true;
+}
+
+/* ---- v175 : la ligne en cours, cochée depuis la TV (télécommande : ▲ ▼ puis OK) ---- */
+var ligne = { cle: "", no: 0 };
+function itemsEtape() { var e = etapes()[etapeNo()]; return (e && e.items) || []; }
+function ligneFaite(e, k) {
+  var it = (e.items || [])[k], id = (e.id || "s") + "-" + k, cotes = it && it.cotes && it.cotes.length ? it.cotes : null;
+  return cotes ? cotes.every(function (s) { return coche(id + "-" + s); }) : coche(id);
+}
+// En arrivant sur une étape : la 1re ligne pas encore cochée (là où on est rendu)
+function ligneCourante() {
+  if (!ecran || ecran.mode !== "procedure" || !proc || !proc.contenu) return -1;
+  var e = etapes()[etapeNo()], n = ((e && e.items) || []).length;
+  if (!n) return -1;
+  var cle = (proc.id || "") + ":" + etapeNo();
+  if (ligne.cle !== cle) {
+    ligne.cle = cle; ligne.no = 0;
+    for (var k = 0; k < n; k++) if (!ligneFaite(e, k)) { ligne.no = k; break; }
+  }
+  if (ligne.no >= n) ligne.no = n - 1;
+  return ligne.no;
+}
+function bougerLigne(delta) {
+  var n = itemsEtape().length, L = ligneCourante(); if (L < 0) return false;
+  var j = L + delta;
+  if (j < 0 || j >= n) { bulle(delta > 0 ? "Dernière ligne · ▶ étape suivante" : "Première ligne"); return true; }
+  ligne.no = j; rendre();
+  return true;
+}
+// Une case, sur la même ligne de la base que le cell (procedure_etat) : le cell et la tablette la voient cochée aussitôt
+function ecrireCoche(cle, oui) {
+  var k = "c:" + cle, avant = etat[k];
+  var v = oui ? { done: true, at: new Date().toISOString(), par: techSuivi() || branchePar || "TV" } : null;
+  if (v) etat[k] = v; else delete etat[k];
+  var req = v ? sb.from("procedure_etat").upsert({ procedure_id: proc.id, cle: k, valeur: v, par: v.par, maj_le: v.at })
+              : sb.from("procedure_etat").delete().eq("procedure_id", proc.id).eq("cle", k);
+  Promise.resolve(req).then(function (r) { if (r && r.error) throw r.error; }).catch(function () {
+    if (avant) etat[k] = avant; else delete etat[k];
+    rendre(); bulle("⚠️ Pas enregistré (réseau) : refais OK");
+  });
+}
+// OK : coche la ligne en cours (un côté à la fois s'il y en a), puis passe à la prochaine ligne pas cochée
+function cocherLigne() {
+  var e = etapes()[etapeNo()], L = ligneCourante(); if (L < 0) return false;
+  var it = e.items[L], id = (e.id || "s") + "-" + L, cotes = it && it.cotes && it.cotes.length ? it.cotes : null;
+  var suivante = function () {
+    var n = e.items.length;
+    for (var d = 1; d <= n; d++) { var k = (L + d) % n; if (!ligneFaite(e, k)) { if (k > L) { ligne.no = k; return "✔ Cochée"; } break; } }
+    if (e.items.every(function (x, k) { return ligneFaite(e, k); })) return "✅ Étape terminée · ▶ étape suivante";
+    for (var k2 = 0; k2 < n; k2++) if (!ligneFaite(e, k2)) { ligne.no = k2; break; }   // il en reste plus haut
+    return "✔ Cochée · il en reste plus haut";
+  };
+  var msg;
+  if (cotes) {
+    var reste = cotes.filter(function (s) { return !coche(id + "-" + s); });
+    if (reste.length) { ecrireCoche(id + "-" + reste[0], true); msg = reste.length > 1 ? "✔ " + reste[0] + " · OK pour " + reste[1] : suivante(); }
+    else { cotes.forEach(function (s) { ecrireCoche(id + "-" + s, false); }); msg = "☐ Décochée"; }
+  } else if (coche(id)) { ecrireCoche(id, false); msg = "☐ Décochée"; }
+  else { ecrireCoche(id, true); msg = suivante(); }
+  rendre(); bulle(msg);
+  return true;
+}
+// La liste défile pour garder la ligne en cours à l'écran ; en bas, combien il en reste plus haut / plus bas
+function suivreLigne() {
+  var ul = $("cases"), plus = $("plus"); if (!ul || !plus) return;
+  plus.hidden = true;
+  if (ul.scrollHeight <= ul.clientHeight + 2) { ul.scrollTop = 0; return; }
+  plus.hidden = false; plus.textContent = " ";   // sa place réservée AVANT de calculer le défilement (sinon il mange le bas de la liste)
+  var li = ul.querySelector("li.ici");
+  if (li) {
+    var haut = li.offsetTop, bas = li.offsetTop + li.offsetHeight, marge = li.offsetHeight;
+    if (haut - marge < ul.scrollTop) ul.scrollTop = Math.max(0, haut - marge);
+    else if (bas + marge > ul.scrollTop + ul.clientHeight) ul.scrollTop = bas + marge - ul.clientHeight;
+  }
+  var dessus = 0, dessous = 0;
+  [].forEach.call(ul.children, function (x) {
+    var mi = x.offsetTop + x.offsetHeight / 2;
+    if (mi < ul.scrollTop) dessus++; else if (mi > ul.scrollTop + ul.clientHeight) dessous++;
+  });
+  plus.textContent = [dessus ? "▲ " + dessus + " plus haut" : "", dessous ? "▼ " + dessous + " plus bas" : ""].filter(Boolean).join(" · ");
+  plus.hidden = !plus.textContent;
+}
+function afficherPage(man, page) {
+  var cle = man.chemin + "#" + page;
+  var poser = function (url) { var img = $("fig-img"), att = $("fig-att"); if (!img) return; img.src = url; img.hidden = false; if (att) att.hidden = true; };
+  if (FIGS[cle]) { poser(FIGS[cle]); return; }
+  ouvrirPdf(man).then(function (d) { return d.getPage(Number(page)); }).then(function (pg) {
+    var v1 = pg.getViewport({ scale: 1 }), largeur = Math.min(1600, Math.round(window.innerWidth * 0.45 * (window.devicePixelRatio || 1)));
+    var vp = pg.getViewport({ scale: largeur / v1.width }), cv = document.createElement("canvas");
+    cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+    return pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise.then(function () { FIGS[cle] = cv.toDataURL("image/jpeg", 0.85); poser(FIGS[cle]); });
+  }).catch(function () { var att = $("fig-att"); if (att) att.textContent = "Page " + page + " du manuel : impossible de l'afficher."; });
+}
+function ouvrirPdf(man) {
+  if (pdfPromesse && pdfPromesse.__chemin === man.chemin) return pdfPromesse;
+  var charger = window.pdfjsLib ? Promise.resolve() : new Promise(function (ok, ko) { var s = document.createElement("script"); s.src = PDFJS + "pdf.min.js"; s.onload = ok; s.onerror = ko; document.head.appendChild(s); });
+  pdfPromesse = charger.then(function () {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.js";
+    return sb.storage.from("manuels").createSignedUrl(man.chemin, 6 * 3600);
+  }).then(function (r) {
+    if (!r || r.error || !r.data) throw new Error("lien refusé");
+    return window.pdfjsLib.getDocument({ url: r.data.signedUrl, disableAutoFetch: true, disableStream: true }).promise;
+  });
+  pdfPromesse.__chemin = man.chemin;
+  pdfPromesse.catch(function () { pdfPromesse = null; });
+  return pdfPromesse;
+}
+function rendreAttente() {
+  $("tete").innerHTML = "";
+  $("tete").hidden = true;
+  $("corps").innerHTML = '<div class="attente"><img src="icon-192.png" alt=""><div class="h" data-horloge>' + heure() + '</div><div class="n">📺 ' + esc((ecran && ecran.nom) || ECRAN) + '</div>' +
+    '<p>' + (techSuivi() && ecran.mode !== "rien" ? esc(techSuivi()) + " n'a pas de punch ouvert en ce moment." : "Rien à l'écran.") + ' Dans le bon de travail live, touche « 📺 TV » pour l\'afficher ici.</p></div>';
+}
+function majPied() {
+  var p = $("pied"); if (!p || !ecran) return;
+  $("tete").hidden = !$("tete").innerHTML;
+  var pts = "";
+  if (ecran.mode === "procedure" && proc && proc.contenu) {
+    var E = etapes(), i = etapeNo();
+    pts = E.map(function (e, k) { var cl = clesEtape(e), fait = cl.length && cl.every(coche); return '<i class="' + (k === i ? "ici" : fait ? "fait" : "") + '"></i>'; }).join("");
+    var avecCases = ((E[i] && E[i].items) || []).length > 0, nF = figsAffichees().length;
+    pts = '<span class="pts">' + pts + '</span><span>' + (avecCases
+      ? "▲ ▼ ligne · OK cocher · ◀ ▶ étape" + (nF > 1 ? " · ⏯ figures" : "")
+      : "◀ ▶ télécommande ou cell" + (nF > 1 ? " · ▲ ▼ figures" : "")) + '</span>';
+  } else pts = '<span class="pts"></span>';
+  p.innerHTML = '<span class="rx' + (connecte ? "" : " non") + '"></span><span>📺 ' + esc(ecran.nom || ECRAN) + (branchePar ? " · compte de " + esc(branchePar) : "") + (connecte ? "" : " · reconnexion…") + '</span>' + pts;
+}
+// Le contenu doit tenir à l'écran : on réduit la taille jusqu'à ce qu'il tienne (jamais sous 55 %)
+function ajuster() {
+  var r = document.documentElement, c = $("corps"), ul = $("cases");   // v175 : la liste des cases défile ; on la réduit d'abord pour tout voir si possible
+  var deborde = function () { return c.scrollHeight > c.clientHeight + 2 || !!(ul && ul.scrollHeight > ul.clientHeight + 2); };
+  var k = 1; r.style.setProperty("--k", "1");
+  for (var n = 0; n < 12 && deborde() && k > 0.56; n++) { k = Math.round((k - 0.04) * 100) / 100; r.style.setProperty("--k", String(k)); }
+}
+
+/* ================= TÉLÉCOMMANDE DE LA FIRE TV : Suivant / Précédent ================= */
+var SUIV = ["ArrowRight", "ArrowDown", "Enter", " ", "MediaFastForward", "MediaTrackNext", "PageDown", "MediaPlayPause"];
+var PREC = ["ArrowLeft", "ArrowUp", "MediaRewind", "MediaTrackPrevious", "PageUp"];
+function changerEtape(delta) {
+  if (!ecran || ecran.mode !== "procedure" || !proc) return false;
+  var n = etapes().length, i = etapeNo(), j = Math.max(0, Math.min(n - 1, i + delta));
+  if (j === i) { bulle(delta > 0 ? "Dernière étape" : "Première étape"); return true; }
+  ecran.etape = j; rendre();
+  bulle(j === 0 ? "◀ Préparation" : (delta > 0 ? "▶ Étape " : "◀ Étape ") + j);
+  sb.from("ecrans").update({ etape: j, maj_le: new Date().toISOString(), maj_par: "télécommande" }).eq("id", ECRAN).then(function () {}, function () {});
+  return true;
+}
+document.addEventListener("keydown", function (e) {
+  if (!$("cx").hidden) {
+    // Écran de branchement : le bouton du centre redonne un code expiré (sauf dans le formulaire du mot de passe)
+    var dansChamp = e.target && /^(INPUT|BUTTON|SUMMARY)$/.test(e.target.tagName || "");
+    if ((e.key === "Enter" || e.keyCode === 23 || e.keyCode === 13) && !jum && !dansChamp) { e.preventDefault(); jumDemander(); }
+    return;
+  }
+  var k = e.key || "";
+  var bas = k === "ArrowDown" || e.keyCode === 40, haut = k === "ArrowUp" || e.keyCode === 38;
+  // v175 : une étape avec des cases → ▲ ▼ choisissent la ligne, OK la coche, ⏯ passe d'une figure à l'autre ; ◀ ▶ changent d'étape
+  if (ligneCourante() >= 0) {
+    if (bas || haut) { e.preventDefault(); bougerLigne(bas ? 1 : -1); return; }
+    if (k === "Enter" || k === " " || e.keyCode === 13 || e.keyCode === 23) { e.preventDefault(); cocherLigne(); return; }
+    if (k === "MediaPlayPause" || k === "MediaPlay" || k === "MediaPause" || e.keyCode === 179 || e.keyCode === 85) {
+      e.preventDefault(); if (!changerFigure(1)) bulle(figsAffichees().length ? "Une seule figure ici" : "Pas de figure pour cette ligne"); return;
+    }
+  }
+  // v171 : ▲ ▼ passent d'une figure à l'autre quand l'étape en a plusieurs (sinon : étape précédente / suivante, comme avant)
+  if ((bas || haut) && changerFigure(bas ? 1 : -1)) { e.preventDefault(); return; }
+  // Fire TV : avance rapide 228, retour rapide 227, lecture / pause 179 (selon le navigateur, key peut être vide)
+  if (SUIV.indexOf(k) >= 0 || e.keyCode === 228 || e.keyCode === 179) { if (changerEtape(1)) e.preventDefault(); }
+  else if (PREC.indexOf(k) >= 0 || e.keyCode === 227) { if (changerEtape(-1)) e.preventDefault(); }
+});
+
+// v175 : au pointeur (ou au doigt) : toucher une ligne la coche ; toucher son badge 📷 ouvre ses figures (puis la suivante)
+$("corps").addEventListener("click", function (ev) {
+  var t = ev.target, li = t && t.closest ? t.closest("[data-ligne]") : null;
+  if (!li || ligneCourante() < 0) return;
+  var k = parseInt(li.getAttribute("data-ligne"), 10); if (isNaN(k)) return;
+  if (t.closest(".fb")) { if (ligne.no === k) changerFigure(1); else { ligne.no = k; rendre(); } return; }
+  ligne.no = k; cocherLigne();
+});
+
+/* ================= TOUJOURS ALLUMÉE, TOUJOURS À JOUR ================= */
+var tic = null, battement = null, secours = null, versionT = null, version = "", demarre = Date.now();
+function signalerVivante() { if (sb && ecran) sb.from("ecrans").update({ vu_le: new Date().toISOString() }).eq("id", ECRAN).then(function () {}, function () {}); }
+function verifierVersion() {
+  try {
+    fetch(location.pathname + "?v=" + Date.now(), { cache: "no-store" }).then(function (r) { return r.ok ? r.text() : ""; }).then(function (t) {
+      if (!t) return;
+      var h = t.length + ":" + t.slice(-400);
+      if (!version) version = h; else if (h !== version) location.reload();   // nouvelle version déployée
+    }, function () {});
+  } catch (e) {}
+}
+// branchee : le technicien vient de brancher la TV avec son compte → si rien n'y est affiché, elle suit son punch
+function demarrer(branchee) {
+  $("cx").hidden = true;
+  charger().then(function () {
+    if (branchee && ecran && branchePar && (ecran.mode === "rien" || !ecran.tech)) {
+      ecran.mode = "bt"; ecran.tech = branchePar;
+      sb.from("ecrans").update({ mode: "bt", tech: branchePar, maj_le: new Date().toISOString(), maj_par: branchePar }).eq("id", ECRAN).then(function () {}, function () {});
+      rendre();
+    }
+    ecouter(); signalerVivante();
+  });
+  clearInterval(tic); clearInterval(battement); clearInterval(secours); clearInterval(versionT);
+  tic = setInterval(function () {
+    [].forEach.call(document.querySelectorAll("[data-horloge]"), function (el) { el.textContent = heure(); });
+    var m = ecran && ecran.mode === "bt" ? btCourant() : null, el = document.querySelector("[data-chrono]");
+    if (m && el) { var s = sessionDe(m, techSuivi()); if (s) el.textContent = hms(duree(s)); }
+    var d = new Date();   // la nuit, un rechargement complet (une page ouverte des semaines finit par s'alourdir)
+    if (d.getHours() === 3 && d.getMinutes() === 30 && Date.now() - demarre > 3600000) location.reload();
+  }, 1000);
+  battement = setInterval(signalerVivante, 90000);
+  secours = setInterval(charger, 60000);           // si le temps réel a raté quelque chose
+  versionT = setInterval(verifierVersion, 600000); verifierVersion();
+  try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {}
+}
+window.addEventListener("online", function () { if (ecran) charger(); });
+document.addEventListener("visibilitychange", function () {
+  if (document.visibilityState === "visible" && ecran) { charger(); try { if (navigator.wakeLock) navigator.wakeLock.request("screen").catch(function () {}); } catch (e) {} }
+});
+
+try { sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_CLE, { auth: { storageKey: "mtr-tv-auth", persistSession: true, autoRefreshToken: true } }); } catch (e) { sb = null; }
+if (!sb) { montrerErreur("Impossible de joindre le serveur."); return; }
+sb.auth.onAuthStateChange(function (ev) { if (ev === "SIGNED_OUT" && ecran) { ecran = null; branchePar = ""; montrerConnexion("La TV a été débranchée : rebranche-la avec le compte d'un technicien."); } });
+sb.auth.getSession().then(function (r) {
+  var u = r && r.data && r.data.session ? r.data.session.user : null;
+  if (!u) { montrerConnexion(""); return; }
+  // Déjà branchée (rallumage, rechargement) : on revérifie le compte (employé parti, devenu administrateur…)
+  return verifierCompte(u).then(function (v) {
+    if (!v.ok) { sb.auth.signOut(); montrerConnexion(v.msg); return; }
+    branchePar = v.nom;
+    demarrer(false);
+  });
+}).catch(function () { montrerConnexion("Pas de réseau."); });
+
+window.__tv = { etat: function () { return { ecran: ecran, machines: machines, proc: proc, etat: etat, connecte: connecte, branchePar: branchePar }; }, rendre: rendre, charger: charger,
+  battement: signalerVivante, etape: changerEtape, btCourant: btCourant, ajuster: ajuster, verdict: verdict,
+  ligne: ligneCourante, cocher: cocherLigne, bougerLigne: bougerLigne, figsLigne: figsLigne };
+})();
+</script>
+</body>
+</html>
