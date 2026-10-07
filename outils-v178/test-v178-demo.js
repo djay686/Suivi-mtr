@@ -8,8 +8,9 @@ const { ok, dodo } = L;
   A.set("machines", [{ id: "bt-1", numeroBT: "BT-300", nom: "2021 Maverick", client: "Marc", statut: "reparation", pieces: [] }]);
   A.w.afficher();
   ok(A.$$("article.carte").some(c => /BT-300|Maverick/.test(c.textContent)), "la carte du BT-300 est au tableau");
+  try { A.w.document.dispatchEvent(new A.w.Event("click", { bubbles: true })); } catch (_) {}   // v178 : le contexte audio naît au premier geste
   A.w.sonNotification();
-  ok(A.sons.notes.join() === "880,1175" && Math.max(...A.sons.pics) === 0.25 && A.vibrations.length === 1, "sonNotification : 2 notes (880, 1175), volume de pointe 0,25, 1 vibration → on peut vérifier « plus fort »");
+  ok(A.sons.notes.length >= 1 && Math.min(...A.sons.notes) >= 1000 && Math.max(...A.sons.pics) >= 0.4 && A.vibrations.length >= 1, "sonNotification (v178 : jouerSon « chat ») : notes ≥ 1000 Hz, volume de pointe ≥ 0,4, vibration → on peut vérifier « plus fort »");
   await A.w.__get("smsEnvoyer") && 0;
   S.db.tableau[0].donnees.push({ id: "bt-2" }); S.pousser("tableau", S.db.tableau[0], "UPDATE");
   ok(true, "pousser() (autre poste) appelé sans erreur");
