@@ -3349,6 +3349,21 @@ function basculerTheme() {
       <button type="button" class="live-tech-btn" style="background:var(--danger)" onclick="liveFinNon()">❌ Non, pas encore</button>
     </div>
     <div id="live-fin-reste" style="display:none">
+      <!-- v178-TAB : temps restant obligatoire, AVANT le texte (le clavier de l'iPad masquerait des pastilles placées dessous) ; aucune pastille présélectionnée -->
+      <div class="live-lbl" id="live-fin-min-lbl">Temps approximatif restant, pour tout le bon *</div>
+      <div class="live-fin-mins" id="live-fin-mins" role="group" aria-labelledby="live-fin-min-lbl">
+        <button type="button" class="live-fin-min" data-min="15" aria-pressed="false" onclick="liveFinMinChoisir(15)">15 min</button>
+        <button type="button" class="live-fin-min" data-min="30" aria-pressed="false" onclick="liveFinMinChoisir(30)">30 min</button>
+        <button type="button" class="live-fin-min" data-min="60" aria-pressed="false" onclick="liveFinMinChoisir(60)">1 h</button>
+        <button type="button" class="live-fin-min" data-min="120" aria-pressed="false" onclick="liveFinMinChoisir(120)">2 h</button>
+        <button type="button" class="live-fin-min" data-min="240" aria-pressed="false" onclick="liveFinMinChoisir(240)">4 h</button>
+        <button type="button" class="live-fin-min" data-min="480" aria-pressed="false" onclick="liveFinMinChoisir(480)">Journée</button>
+        <button type="button" class="live-fin-min" data-min="autre" aria-pressed="false" onclick="liveFinMinAutre()">Autre…</button>
+      </div>
+      <div class="live-fin-autre" id="live-fin-autre" style="display:none">
+        <input type="number" class="champ" id="live-fin-min-autre" inputmode="numeric" min="5" step="5" placeholder="Minutes" aria-label="Temps restant en minutes (5 minutes ou plus)" oninput="liveFinMinSaisie(this.value)">
+        <span>minutes</span>
+      </div>
       <label class="live-lbl" for="live-fin-texte">Qu'est-ce qu'il reste à faire pour terminer ? *</label>
       <textarea class="champ" id="live-fin-texte" rows="4" placeholder="Ex. : attendre le joint de culasse, refaire l'essai routier…"></textarea>
       <div class="mw-pied">
@@ -20901,7 +20916,7 @@ function liveRendre() {
         <div><span class="live-lbl">Statut</span><b>${echap(libelle(m.statut))}</b></div>
         <div><span class="live-lbl">Km / heures</span><b>${m.kilometrage ? echap(m.kilometrage) + " km" : ""}${m.kilometrage && m.heuresMachine ? " · " : ""}${m.heuresMachine ? echap(m.heuresMachine) + " h" : ""}${!m.kilometrage && !m.heuresMachine ? "—" : ""}</b></div>
       </div>
-      ${m.resteAFaire && m.resteAFaire.texte ? `<div class="live-import" style="margin-top:10px">⏳ <b>Reste à faire</b> (${echap(m.resteAFaire.tech || "")}) : ${echap(m.resteAFaire.texte)}</div>` : ""}
+      ${m.resteAFaire && m.resteAFaire.texte ? `<div class="live-import" style="margin-top:10px">⏳ <b>Reste à faire</b> (${echap(m.resteAFaire.tech || "")}) : ${echap(m.resteAFaire.texte)}${/* v178-TAB */ resteMinutesDe(m) ? " — ≈ " + dureeTxtLocale(resteMinutesDe(m)) + " restant" : ""}</div>` : ""}
       <div class="live-lbl" style="margin-top:10px">Travaux demandés</div>
       <div class="live-travaux">${echap(m.travaux || "—")}</div>
     </section>
@@ -22046,6 +22061,7 @@ function liveFinOuvrir() {
   document.getElementById("live-fin-reste").style.display = "none";
   document.getElementById("live-fin-annuler").style.display = "";
   document.getElementById("live-fin-texte").value = (m.resteAFaire && m.resteAFaire.texte) || "";
+  try { liveFinMinReset(0); } catch (_) {}   // v178-TAB : aucune pastille de temps présélectionnée
   document.getElementById("live-fin").classList.add("ouvert");
 }
 function liveFinAnnuler() { document.getElementById("live-fin").classList.remove("ouvert"); }
@@ -22058,7 +22074,7 @@ function liveFinNon() {
   document.getElementById("live-fin-choix").style.display = "none";
   document.getElementById("live-fin-reste").style.display = "block";
   document.getElementById("live-fin-annuler").style.display = "none";
-  setTimeout(() => document.getElementById("live-fin-texte").focus(), 60);
+  // v178-TAB : plus de focus automatique sur le texte : le clavier de l'iPad cacherait les pastilles de temps, à choisir en premier
 }
 function liveFinOui() {
   const m = liveM(); if (!m) return;
@@ -22091,15 +22107,21 @@ function liveFinValider() {
   const m = liveM(); if (!m) return;
   const s = liveMaSession(m); if (!s) { liveFinAnnuler(); return; }
   const texte = document.getElementById("live-fin-texte").value.trim();
+  const minutes = liveFinMinLire();   // v178-TAB : temps restant obligatoire (entier, 5 min ou plus)
+  if (!minutes) { alert("Indique le temps approximatif restant, pour tout le bon (touche une durée, ou « Autre… » : 5 minutes ou plus)."); return; }   // v178-TAB : la session reste ouverte
   if (!texte) { alert("Écris ce qu'il reste à faire pour terminer."); document.getElementById("live-fin-texte").focus(); return; }
   m.travauxTermines = false;
-  m.resteAFaire = { texte, tech: s.tech, quand: new Date().toISOString() };
-  liveNotes(m).push({ texte: "⏳ Reste à faire : " + texte, tech: s.tech, quand: m.resteAFaire.quand });
-  liveMajNotesTech(m);
   liveFinAnnuler();
-  liveFermerSession(s);
+  liveFermerSession(s);   // v178-TAB : la session est fermée AVANT la saisie de `quand`, pour que resteMinutesDe ne la recompte pas
+  const quand = new Date().toISOString();   // v178-TAB
+  m.resteAFaire = { texte, tech: s.tech, quand, minutes };   // v178-TAB : minutes = champ du contrat (lu par resteMinutesDe)
+  if (!Array.isArray(m.resteHisto)) m.resteHisto = [];   // v178-TAB : historique des estimations (jamais effacé par « Oui, terminés »)
+  m.resteHisto.push({ minutes, tech: s.tech, quand });   // v178-TAB
+  if (m.resteHisto.length > 30) m.resteHisto = m.resteHisto.slice(-30);   // v178-TAB
+  liveNotes(m).push({ texte: "⏳ Reste à faire : " + texte + " (≈ " + dureeTxtLocale(minutes) + " restant)", tech: s.tech, quand });   // v178-TAB
+  liveMajNotesTech(m);
   sauvegarder();
-  toastAviser(`⏹ Session de ${s.tech} fermée — reste à faire noté`, true);
+  toastAviser(`⏹ Session de ${s.tech} fermée — reste à faire noté (≈ ${dureeTxtLocale(minutes)})`, true);   // v178-TAB
   fermerLive();
 }
 
@@ -22870,7 +22892,7 @@ function rendreEcranTech() {
       <div class="tm-haut"><span class="tm-bt">${echap(m.numeroBT || "—")}</span>${m.numeroMachine ? `<span class="tm-num">🏷️ ${echap(m.numeroMachine)}</span>` : ""}</div>
       <div class="tm-nom">${echap(nomMachine(m))}</div>
       <div class="tm-client">${echap(m.client || "")}${m.travaux ? " · " + echap(m.travaux).slice(0, 60) : ""}</div>
-      <div class="tm-etat"><span>${echap(libelle(m.statut))}${techAVenir(m) && m.echeance ? " · " + echap(tchDate(m.echeance)) + (m.heure ? " " + echap(m.heure) : "") : ""}</span>${m.statut === "avenir" && m.machineArrivee ? `<span class="moi">🚜 arrivée</span>` : ""}${liveSessions(m).length ? `<span class="live">🔴 ${echap(liveNomsLive(m))}</span>` : ""}${m.technicien === e.nom ? `<span class="moi">assignée à moi</span>` : ""}${m.lieu ? `<span>📍 ${echap(lieuTexte(m))}</span>` : ""}${m.resteAFaire && m.resteAFaire.texte ? `<span>⏳ ${echap(m.resteAFaire.texte).slice(0, 40)}</span>` : ""}</div>
+      <div class="tm-etat"><span>${echap(libelle(m.statut))}${techAVenir(m) && m.echeance ? " · " + echap(tchDate(m.echeance)) + (m.heure ? " " + echap(m.heure) : "") : ""}</span>${m.statut === "avenir" && m.machineArrivee ? `<span class="moi">🚜 arrivée</span>` : ""}${liveSessions(m).length ? `<span class="live">🔴 ${echap(liveNomsLive(m))}</span>` : ""}${m.technicien === e.nom ? `<span class="moi">assignée à moi</span>` : ""}${m.lieu ? `<span>📍 ${echap(lieuTexte(m))}</span>` : ""}${m.resteAFaire && m.resteAFaire.texte ? `<span>⏳ ${/* v178-TAB */ resteMinutesDe(m) ? "~" + dureeTxtLocale(resteMinutesDe(m)) + " · " : ""}${echap(m.resteAFaire.texte).slice(0, 40)}</span>` : ""}</div>
     </button>`;
   };
   const enCours = atelier.filter(m => !techAVenir(m) && rang(m) < 5), aVenir = atelier.filter(techAVenir), finis = atelier.filter(m => !techAVenir(m) && rang(m) >= 5);
@@ -29130,7 +29152,10 @@ function ordreJourTxt(iso, auj) {
 function ordreNomCourt(m) { return calNomClient(m) || nomMachine(m); }
 function ordrePeutModifier() { const u = utilisateurCourant(); return !u || estAdmin(); }
 function ordreTravailleMin(m) { return Math.round((Array.isArray(m.chrono) ? m.chrono : []).reduce((t, s) => t + liveDuree(s), 0) / 60000); }
-function ordreResteAuto(m) { return Math.max(15, Math.ceil(((Number(m.dureeEstimee) || 60) - ordreTravailleMin(m)) / ORDRE_PAS) * ORDRE_PAS); }   // arrondi aux 5 min
+function ordreResteAuto(m) {
+  try { const r = resteMinutesDe(m); if (r > 0) return Math.max(15, Math.ceil(r / ORDRE_PAS) * ORDRE_PAS); } catch (_) {}   // v178-TAB : le temps restant noté par le technicien (« Non, pas encore ») prime sur la formule
+  return Math.max(15, Math.ceil(((Number(m.dureeEstimee) || 60) - ordreTravailleMin(m)) / ORDRE_PAS) * ORDRE_PAS);   // arrondi aux 5 min
+}
 // Horaire fixé à la main, encore valable (aujourd'hui ou plus tard)
 function ordrePlanifDe(m, auj) {
   const p = m && m.planif;
@@ -30616,8 +30641,59 @@ setInterval(() => {
 <script id="v178-PCS"></script>
 <style id="v178-FAC"></style>
 <script id="v178-FAC"></script>
-<style id="v178-TAB"></style>
-<script id="v178-TAB"></script>
+<style id="v178-TAB">
+/* v178-TAB : jours depuis l'arrivée (A7), repli « estimé » (Q24) et pastilles de temps restant à la fermeture de session (A8).
+   Deux classes de spécificité : la règle .badge générique (plus haut dans le CSS principal) vient APRÈS .badge-live / .badge-reste. */
+.live-fin-mins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0 10px; }
+.live-fin-min { min-height: 44px; padding: 8px 6px; border: 1.5px solid var(--bordure); border-radius: 10px; background: var(--surface-2); color: var(--encre); font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.live-fin-min:hover { border-color: var(--accent); }
+.live-fin-min.actif { background: var(--c-repar); border-color: var(--c-repar); color: #fff; }
+.live-fin-autre { align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; color: var(--sourdine); }
+.live-fin-autre .champ { width: 130px; min-height: 44px; font-size: 16px; }
+#live-fin-reste .live-lbl { margin-top: 2px; }
+#live-fin-reste textarea.champ { margin: 4px 0 10px; }
+@media (max-width: 520px) { .live-fin-mins { grid-template-columns: repeat(3, 1fr); } }
+</style>
+<script id="v178-TAB">
+// ═══════════ v178-TAB : date d'arrivée (A7-3) et temps restant à la fermeture de session (A8) ═══════════
+// Le tri, les badges et la ligne « Reste » de la carte sont dans le script principal (arriveeTrier, arriveeBadgeHTML, resteBadgeHTML) :
+// le premier afficher() passe avant le chargement de ce bloc.
+
+// A8-2 : pastilles de temps restant de la fenêtre « Les travaux sont-ils terminés ? → Non, pas encore ».
+let liveFinMin = 0;                 // temps restant choisi, en minutes entières (0 = aucun choix : l'enregistrement est refusé)
+let liveFinMinEstAutre = false;     // « Autre… » est la pastille active
+function liveFinMinMarquer() {
+  document.querySelectorAll("#live-fin-mins .live-fin-min").forEach(b => {
+    const d = b.getAttribute("data-min");
+    const actif = d === "autre" ? liveFinMinEstAutre : (!liveFinMinEstAutre && Number(d) === liveFinMin);
+    b.classList.toggle("actif", actif);
+    b.setAttribute("aria-pressed", actif ? "true" : "false");
+  });
+  const z = document.getElementById("live-fin-autre");
+  if (z) z.style.display = liveFinMinEstAutre ? "flex" : "none";
+}
+function liveFinMinChoisir(min) { liveFinMinEstAutre = false; liveFinMin = Math.round(Number(min)) || 0; liveFinMinMarquer(); }
+function liveFinMinAutre() {
+  liveFinMinEstAutre = true;
+  const c = document.getElementById("live-fin-min-autre");
+  liveFinMinSaisie(c ? c.value : 0);                           // case vide : rien n'est encore choisi
+  liveFinMinMarquer();
+  if (c) setTimeout(() => { try { c.focus(); } catch (_) {} }, 30);
+}
+// Minutes entières ; la virgule décimale est acceptée (« 7,6 » → 8) ; illisible ou négatif → 0 ; plafonné à 9 999 min
+function liveFinMinSaisie(v) { const n = Math.round(Number(String(v == null ? "" : v).replace(",", "."))); liveFinMin = isFinite(n) && n > 0 ? Math.min(n, 9999) : 0; }
+// Le temps restant valide (5 minutes ou plus), sinon 0
+function liveFinMinLire() { return liveFinMin >= 5 ? liveFinMin : 0; }
+// À l'ouverture de la fenêtre : aucune pastille (prefill = 0) ; un prefill ≥ 5 allume la pastille qui lui correspond (ou « Autre… »)
+function liveFinMinReset(prefill) {
+  const p = Math.round(Number(prefill)) || 0;
+  liveFinMin = p > 0 ? p : 0;
+  liveFinMinEstAutre = liveFinMin > 0 && [15, 30, 60, 120, 240, 480].indexOf(liveFinMin) < 0;
+  const c = document.getElementById("live-fin-min-autre");
+  if (c) c.value = liveFinMinEstAutre ? String(liveFinMin) : "";
+  liveFinMinMarquer();
+}
+</script>
 <style id="v178-CALA"></style>
 <script id="v178-CALA"></script>
 <style id="v178-CALB"></style>
