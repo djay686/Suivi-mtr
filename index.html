@@ -7194,6 +7194,85 @@ function rdvOccupationJour(iso) {
 }
 
 //@@v178-S0a capacite
+// ═══ v178-S0a : moteur de capacité des techniciens ═══════════════════════════
+// Fonctions PURES (aucun réseau, aucune écriture) sur machines, EMPLOYES, dispoOverride et rdvConfig.
+// Une place = un technicien capable (rôle admin ou technicien, présent, compétent) qui couvre toute la plage,
+// moins les rendez-vous qui chevauchent (tampon compris).
+// Interrupteur de repli : false redonne la capacité 1 de la v177 partout (un seul rendez-vous à la fois).
+const CAPACITE_MULTI_TECHS = true;
+// Rôles qui comptent (lus par roleDe : rôle absent = technicien ; « tache » et « reception » ne comptent pas)
+const ROLES_CAPACITE_RDV = ["admin", "technicien"];
+// v178-S0a : techniciens capables un jour donné → [{ nom, debut, fin }] (heures décimales de leur journée).
+// Compétents pour typeMachine ; si personne ne l'est, repli sur tous les techniciens présents (comme choisirTechnicien).
+function techsCapacite(iso, typeMachine) {
+  const liste = techniciensDisponibles(iso, typeMachine)
+    .filter(e => ROLES_CAPACITE_RDV.includes(roleDe(e)))
+    .map(e => {
+      const h = empHeuresJour(e, iso);
+      const debut = h ? Number(h[0]) : NaN, fin = h ? Number(h[1]) : NaN;
+      return fin > debut ? { nom: e.nom, debut, fin } : null;
+    })
+    .filter(Boolean);
+  if (!liste.length && typeMachine) return techsCapacite(iso);
+  return liste;
+}
+// v178-S0a : rendez-vous d'un jour → [{ id, debut, fin, tech, groupe }] : bons non archivés dont echeance === iso
+// et qui ont une heure (même filtre que rdvOccupationJour), plus opt.extra (créneaux retenus des autres demandes :
+// { iso?, heure "HH:MM" ou debut, duree_min | duree (minutes) ou fin, tech? }). opt.saufId exclut un bon (déplacement).
+function rdvIntervalles(iso, opt) {
+  opt = opt || {};
+  const out = [];
+  (Array.isArray(machines) ? machines : []).forEach(m => {
+    if (!m || m.statut === "archive" || m.echeance !== iso || !m.heure) return;
+    if (opt.saufId != null && m.id === opt.saufId) return;
+    const debut = hhmmEnDecimal(String(m.heure));
+    if (!isFinite(debut)) return;
+    out.push({ id: m.id, debut, fin: debut + (Number(m.dureeEstimee) || 60) / 60, tech: m.technicien || "", groupe: m.rdvGroupe });
+  });
+  (opt.extra || []).forEach(x => {
+    if (!x || (x.iso != null && String(x.iso).slice(0, 10) !== iso)) return;
+    const debut = typeof x.debut === "number" ? x.debut : hhmmEnDecimal(String(x.heure || ""));
+    if (!isFinite(debut)) return;
+    const fin = typeof x.fin === "number" ? x.fin : debut + (Number(x.duree_min || x.duree) || 60) / 60;
+    out.push({ id: x.id != null ? x.id : null, debut, fin, tech: x.tech || x.technicien || "", groupe: x.groupe, extra: true });
+  });
+  return out;
+}
+// v178-S0a : pré-calcul d'un jour pour les boucles (30 jours × 32 départs) : rdvPlaces(iso, t, d, { ctx: rdvCtx(iso, opt) }).
+// opt = { typeMachine, saufId, extra } ; avec ctx, rdvPlaces prend techs et rendez-vous du ctx (opt.extra n'y est pas rajouté).
+function rdvCtx(iso, opt) {
+  opt = opt || {};
+  return { iso, techs: techsCapacite(iso, opt.typeMachine), intervalles: rdvIntervalles(iso, opt) };
+}
+// v178-S0a : places pour un départ debutDec (heures décimales, ou "HH:MM") de dureeH heures.
+//   capNoms = techniciens capables qui couvrent toute la plage ; cap = leur nombre (1 au plus sans CAPACITE_MULTI_TECHS)
+//   charge  = rendez-vous qui chevauchent, tampon compris (règle stricte du picker : un départ à fin + tampon est libre)
+//   places  = max(0, cap − charge) ; libres = capNoms moins les techniciens épinglés sur un rendez-vous qui chevauche
+// opt = { typeMachine, saufId, extra, tampon (en heures ; défaut rdvConfig.tampon / 60), dinerDur (la plage qui croise
+//         rdvConfig.diner donne 0 place, comme le picker des demandes), ctx (rdvCtx du même jour) }
+function rdvPlaces(iso, debutDec, dureeH, opt) {
+  opt = opt || {};
+  const t = (typeof debutDec === "string" && debutDec.includes(":")) ? hhmmEnDecimal(debutDec) : Number(debutDec);
+  const fin = t + (Number(dureeH) || 0);
+  const tampon = opt.tampon != null ? (Number(opt.tampon) || 0) : (rdvConfig.tampon || 0) / 60;
+  const ctx = (opt.ctx && (opt.ctx.iso == null || opt.ctx.iso === iso)) ? opt.ctx : null;
+  const techs = (ctx && ctx.techs) ? ctx.techs : techsCapacite(iso, opt.typeMachine);
+  let inter = (ctx && ctx.intervalles) ? ctx.intervalles : rdvIntervalles(iso, opt);
+  if (ctx && opt.saufId != null) inter = inter.filter(o => o.id !== opt.saufId);
+  const capNoms = techs.filter(x => t >= x.debut - 1e-9 && fin <= x.fin + 1e-9).map(x => x.nom);
+  const cap = CAPACITE_MULTI_TECHS ? capNoms.length : Math.min(1, capNoms.length);
+  const chevauchants = inter.filter(o => !(fin + tampon <= o.debut + 1e-9 || t >= o.fin + tampon - 1e-9));
+  const charge = chevauchants.length;
+  const pris = new Set(chevauchants.map(o => o.tech).filter(Boolean));
+  let libres = capNoms.filter(n => !pris.has(n));
+  let places = Math.max(0, cap - charge);
+  if (opt.dinerDur) {
+    const d = rdvConfig.diner || {};
+    const dDeb = (d.actif && d.debut != null) ? Number(d.debut) : null;
+    if (dDeb != null && t < dDeb + (Number(d.duree) || 60) / 60 - 1e-9 && fin > dDeb + 1e-9) { places = 0; libres = []; }
+  }
+  return { places, libres, capNoms, cap, charge };
+}
 function genererSuggestionsRdv() {
   const dureeMin = Number(document.getElementById("rdv-duree").value);
   const dureeH = dureeMin / 60;
@@ -8688,7 +8767,7 @@ function techniciensDisponibles(iso, typeMachine) {
   });
 }
 function nbTechniciensDispo(iso, typeMachine) {
-  return techniciensDisponibles(iso, typeMachine).length;
+  return techsCapacite(iso, typeMachine).length;   // v178-S0a : même compte que les places de rendez-vous (rôles admin et technicien)
 }
 
 // ── Coin Options : disponibilité manuelle par jour ──
