@@ -3879,6 +3879,7 @@ function basculerTheme() {
   <div class="menu-sect">Compte</div>
   <button class="menu-item" onclick="menuAller('deconnecter')"><span class="i">👤</span>Changer d'utilisateur</button>
   <button class="menu-item" onclick="fermerMenu(); mdpDemanderNouveau(utilisateurCourant())"><span class="i">🔑</span>Changer mon mot de passe</button>
+  <button class="menu-item" onclick="menuAller('pushOuvrirReglages')"><span class="i">🔊</span>Alertes et sons</button><!-- v178-SON : volontairement sans attribut de section (appliquerDroits masque ce qui en porte un : les techniciens ne verraient pas l'item) -->
 </nav>
 
 <div class="voile-accept" id="voile-acceptations" onclick="if(event.target===this)fermerAcceptations()">
@@ -9085,6 +9086,7 @@ function cmdAlarmesRendre(sansNotif) {
     const titre = neufs.length > 1 ? `📦 ${neufs.length} pièces commandées en retard` : `📦 Pièce en retard : ${x.desc || x.num}`;
     const corps = neufs.length > 1 ? neufs.slice(0, 4).map(y => (y.desc || y.num) + (y.four ? " (" + y.four + ")" : "")).join(", ") : `${x.four ? "Chez " + x.four + " · " : ""}${x.ref ? x.ref + " · " : ""}attendue ${cmdQuandTexte(x.attendu)}`;
     toastAviser(titre + " — " + corps, false);
+    try { jouerSon("piece"); } catch (_) {}   // v178-SON : une seule fois par pièce et par arrivée prévue (CMD_AVISES)
     try {
       if (document.hidden && "Notification" in window && Notification.permission === "granted") {
         const no = new Notification(titre, { body: corps, tag: "mtr-cmd-retard" });
@@ -14546,21 +14548,9 @@ function annoncerAcceptation(a) {
   try { sonAcceptation(); } catch (_) {}
 }
 
-// Deux notes courtes, montantes — volontairement différentes de l'alerte de conflit
+// v178-SON : enveloppe conservée ; trois notes montantes de la table SONS (plus de contexte audio jetable à chaque appel)
 function sonAcceptation() {
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
-  const ctx = new AC();
-  [[880, 0], [1320, 0.13]].forEach(([f, t]) => {
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.type = "sine"; o.frequency.value = f;
-    o.connect(g); g.connect(ctx.destination);
-    g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
-    g.gain.exponentialRampToValueAtTime(0.14, ctx.currentTime + t + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.12);
-    o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.13);
-  });
-  setTimeout(() => { try { ctx.close(); } catch (_) {} }, 600);
+  try { jouerSon("acceptation"); } catch (_) {}
 }
 
 // Panneau listant les acceptations reçues
@@ -21457,27 +21447,30 @@ function chatMajBadge() {
   const btnLive = document.getElementById("live-btn-chat"); if (btnLive) btnLive.classList.toggle("alerte", n > 0);
   document.querySelectorAll(".tech-tuile").forEach(tu => { if (tu.getAttribute("onclick") === "techOuvrir('messages')") tu.classList.toggle("alerte", n > 0); });
 }
-// ── Son de notification (sans fichier : deux notes courtes) ──
+// ── Sons de l'app (sans fichier) ──
+// v178-SON : le contexte audio et son déblocage restent ici (appelés tôt) ; la table SONS, jouerSon(), les préférences
+// (volume / muet) et les réglages sont dans <script id="v178-SON"> en fin de page.
 let sonCtx = null;
 function sonDebloquer() {
-  try { if (!sonCtx) sonCtx = new (window.AudioContext || window.webkitAudioContext)(); if (sonCtx.state === "suspended") sonCtx.resume(); } catch (_) {}
-}
-["click", "touchstart", "keydown"].forEach(ev => document.addEventListener(ev, sonDebloquer, { once: true, passive: true }));
-function sonNotification() {
   try {
-    sonDebloquer();
-    if (!sonCtx) return;
-    [[880, 0], [1175, 0.16]].forEach(([f, t]) => {
-      const o = sonCtx.createOscillator(), g = sonCtx.createGain();
-      o.type = "sine"; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, sonCtx.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.25, sonCtx.currentTime + t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, sonCtx.currentTime + t + 0.28);
-      o.connect(g).connect(sonCtx.destination);
-      o.start(sonCtx.currentTime + t); o.stop(sonCtx.currentTime + t + 0.3);
-    });
+    if (sonCtx && sonCtx.state === "closed") sonCtx = null;   // v178 : un contexte fermé ne revient pas
+    if (!sonCtx) {
+      sonCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // v178 : à OBSERVER sur l'iPad réel : « playback » devrait faire sonner l'app malgré le commutateur silencieux, mais peut
+      // couper la musique Bluetooth de l'atelier au premier son ; effet non confirmé hors d'un vrai iPad.
+      try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (_) {}
+    }
+    if (sonCtx.state !== "running") { const p = sonCtx.resume(); if (p && p.catch) p.catch(() => {}); }
   } catch (_) {}
-  try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (_) {}
+}
+// v178-SON : écouteurs PERSISTANTS (plus de {once:true}) sur les seuls gestes qui activent l'audio pour WebKit : click, touchend,
+// pointerup, keydown. JAMAIS pointerdown / touchstart seuls : sur écran tactile ils ne débloquent rien (le son restait muet sur l'iPad).
+["click", "touchend", "pointerup", "keydown"].forEach(ev => { try { document.addEventListener(ev, sonDebloquer, { passive: true }); } catch (_) {} });
+// v178-SON : iOS passe le contexte en « interrupted » après un passage en arrière-plan : on le relance au retour (sans geste, ça peut échouer : sans conséquence).
+try { document.addEventListener("visibilitychange", () => { try { if (!document.hidden && sonCtx && sonCtx.state !== "running" && sonCtx.state !== "closed") { const p = sonCtx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (_) {} }); } catch (_) {}
+// v178-SON : enveloppe conservée (appelée ailleurs) ; le son « chat » vient de la table SONS
+function sonNotification() {
+  try { jouerSon("chat"); } catch (_) {}
 }
 // ── Fenêtre surgissante ──
 let chatPopupMsg = null, chatPopupTimer = null;
@@ -21592,7 +21585,7 @@ function chatAlerteNouveaux() {
   if (chatDernierNb !== null && n > chatDernierNb && u) {
     const dernier = chat.filter(x => chatPourMoi(x) && x.de !== u.nom && !(x.lu || []).includes(u.nom)).slice(-1)[0];
     if (dernier) {
-      sonNotification();
+      try { jouerSon("chat"); } catch (_) {}   // v178-SON : son « chat » (table SONS)
       const tiroir = document.getElementById("chat-tiroir");
       const dest = (document.getElementById("chat-a") || {}).value || "tous";
       const dejaSousLesYeux = tiroir.classList.contains("ouvert") && (dernier.a === "tous" ? dest === "tous" : dest === dernier.de);
@@ -22369,6 +22362,7 @@ function sessionAvertOuvrir() {
   sessionAvertMaj();
   if (!v.classList.contains("ouvert")) {
     v.classList.add("ouvert");
+    try { jouerSon("session"); } catch (_) {}   // v178-SON : une seule fois, à l'ouverture de l'avertissement (pas à chaque vérification)
     setTimeout(() => { try { document.getElementById("encore-continuer").focus(); } catch (_) {} }, 60);
   }
   if (!sessionAvertTimer) sessionAvertTimer = setInterval(() => { sessionAvertMaj(); if (sessionFinMs() - Date.now() <= 0) sessionVerifier(); }, 1000);
@@ -24603,6 +24597,9 @@ async function pushOuvrirReglages() {
     document.body.appendChild(v);
   }
   v.classList.add("ouvert");
+  // v178-SON : le bloc « Sons » (#son-boite, distinct de #push-boite) se remplit TOUT DE SUITE, avant l'await : pushRendre attend
+  // serviceWorker.ready (qui ne se résout jamais sans /sw.js) et réécrit #push-boite à chaque appel, ce qui détruirait le curseur en cours de réglage.
+  try { sonReglagesRendre(); } catch (_) {}
   await pushRendre();
 }
 
@@ -24640,7 +24637,7 @@ async function pushRendre() {
         <span>${nomApp(a.appareil || "")} — <b>${(a.employe || "?").replace(/</g, "&lt;")}</b></span>
         <span style="color:#64748b">${a.derniere_erreur ? "⚠️ " + a.derniere_erreur.slice(0, 40) : "dernier envoi " + fmt(a.dernier_ok)}</span></div>`).join("")
       : `<div style="font-size:14px;color:#64748b">Aucun appareil abonné pour l'instant.</div>`}
-    <div style="font-size:12px;color:#94a3b8;margin-top:12px">Le son est celui des notifications du téléphone : mode silencieux / Concentration s'appliquent comme pour n'importe quelle app.</div>`;
+    <div style="font-size:12px;color:#94a3b8;margin-top:12px">Quand l'app est fermée ou en arrière-plan, le son est choisi par le système (pas par l'app) et suit la sonnerie, le mode silencieux et Concentration. Quand l'app est ouverte, elle sonne plus fort, mais jamais au-delà du volume de l'appareil. Sur iPhone / iPad : mets le commutateur sur sonnerie.</div>`;   // v178-SON
   document.getElementById("push-fermer").onclick = () => document.getElementById("push-voile").classList.remove("ouvert");
   const on = document.getElementById("push-on"), off = document.getElementById("push-off"), t = document.getElementById("push-test");
   if (on) on.onclick = async () => { on.disabled = true; try { await pushActiver(); } finally { await pushRendre(); } };
@@ -27108,7 +27105,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
           const nouvelle = p.eventType === "INSERT";
           await demCharger(); demMajBadge();
           if (nouvelle) {
-            demSonnerie();
+            try { jouerSon("demande"); } catch (_) {}   // v178-SON
             const d = p.new || {};
             if (typeof toastAviser === "function") toastAviser(`📨 Nouvelle demande — ${d.nom || "client"}${d.type_machine ? " · " + d.type_machine : ""}`, true);
             demClignoter();
@@ -27124,29 +27121,10 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
         .subscribe();
     } catch (_) {}
   }
-  // Son d'arrivée d'une demande : motif à trois notes répété, ~3,5 s, volontairement
-  // différent du petit bip des autres notifications de l'app.
+  // Son d'arrivée d'une demande. v178-SON : enveloppe conservée (window.__dem.sonnerie) ; le motif est dans la table SONS
+  // (jouerSon("demande") : plus fort, en dent de scie, distinct des autres alertes).
   function demSonnerie() {
-    try {
-      if (typeof sonDebloquer === "function") sonDebloquer();
-      const ctx = (typeof sonCtx !== "undefined" && sonCtx) ? sonCtx : null;
-      if (!ctx) return;
-      const t0 = ctx.currentTime;
-      const motif = [523.25, 659.25, 783.99];      // do – mi – sol
-      for (let rep = 0; rep < 4; rep++) {          // 4 répétitions ≈ 3,4 s
-        motif.forEach((f, i) => {
-          const d = t0 + rep * 0.85 + i * 0.16;
-          const o = ctx.createOscillator(), g = ctx.createGain();
-          o.type = "triangle"; o.frequency.value = f;
-          g.gain.setValueAtTime(0.0001, d);
-          g.gain.exponentialRampToValueAtTime(0.3, d + 0.03);
-          g.gain.exponentialRampToValueAtTime(0.0001, d + 0.34);
-          o.connect(g).connect(ctx.destination);
-          o.start(d); o.stop(d + 0.36);
-        });
-      }
-    } catch (_) { try { if (typeof sonNotification === "function") sonNotification(); } catch (__) {} }
-    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200, 100, 400]); } catch (_) {}
+    try { jouerSon("demande"); } catch (_) {}
   }
 
   function demClignoter() {
@@ -28379,7 +28357,8 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
         if (nouveau && nouveau.statut === "a_traiter" && (nouveau.canal === "appel_manque" || nouveau.canal === "sms_in")) {
           const ci = CANAUX[nouveau.canal] || {};
           toast(`${ci.ico || "📞"} ${ci.lib || "Communication"} — ${nouveau.client_nom || telJoli(nouveau.tel)}`, true);
-          try { if (nouveau.canal === "appel_manque" && window.__dem && window.__dem.sonnerie) window.__dem.sonnerie(); } catch (_) {}
+          // v178-SON : appel manqué = son tout de suite ; texto = seulement s'il est ENCORE « à traiter » ~2 s plus tard (l'Edge sms-entrant passe vite à « traité » les OUI / STOP / choix de créneau)
+          try { if (nouveau.canal === "appel_manque") jouerSon("appel"); else sonSmsSiReste(s, nouveau.id, aTraiter); } catch (_) {}
         }
         if (voile.classList.contains("ouvert")) commRendre();
       }).subscribe();
@@ -28685,6 +28664,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       }
     } catch (_) {}
     //@@v178-A11 proposerNote
+    try { jouerSon("appelEntrant"); } catch (_) {}   // v178-SON : appel entrant (une seule fois : propositions.has(id) a déjà sorti les doublons)
   }
   if (bcAppel) bcAppel.onmessage = (e) => {
     if (window.__appelHandoff && window.__appelHandoff.transmis) return;   // onglet Linkus déjà transmis : il ne répond plus
@@ -29076,6 +29056,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
       const titre = neufs.length > 1 ? `⏰ ${neufs.length} rappels à faire` : `⏰ Rappeler ${nomDe(c)}`;
       const corps = neufs.length > 1 ? neufs.map(nomDe).slice(0, 4).join(", ") : (quoi || telJoli(c.tel));
       toast(titre + (neufs.length > 1 ? " : " + corps : quoi ? " — " + (quoi.length > 60 ? quoi.slice(0, 57) + "…" : quoi) : ""), true);
+      try { jouerSon("rappel"); } catch (_) {}   // v178-SON : une seule fois par rappel et par appareil (CLE_AVISES)
       try {
         if (document.hidden && "Notification" in window && Notification.permission === "granted") {
           const no = new Notification(titre, { body: corps, tag: "mtr-rappel" });
@@ -30881,8 +30862,166 @@ setInterval(() => {
 <script id="v178-CAL9"></script>
 <style id="v178-CAL6"></style>
 <script id="v178-CAL6"></script>
-<style id="v178-SON"></style>
-<script id="v178-SON"></script>
+<style id="v178-SON">
+/* v178-SON — bloc « Sons » du panneau Alertes et sons */
+#son-boite { margin: 0 0 14px; padding: 0 0 12px; border-bottom: 1px solid #e2e8f0; }
+#son-boite .son-tete { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+#son-boite .son-aide { margin: 6px 0 10px; color: #475569; font-size: 14px; }
+/* le « label » générique de l'app est en petites capitales grises : on le neutralise ici */
+#son-boite .son-vol, #son-boite .son-muet { text-transform: none; letter-spacing: normal; font-weight: 600; color: #111; margin: 0; }
+#son-boite .son-vol { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 16px; }
+#son-boite .son-vol input[type=range] { flex: 1; min-width: 0; height: 44px; margin: 0; }
+#son-boite .son-vol b { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+#son-boite .son-muet { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 16px; cursor: pointer; }
+#son-boite .son-muet input { width: 24px; height: 24px; margin: 0; flex: none; }
+#son-boite .son-liste { margin-top: 6px; }
+#son-boite .son-ligne { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 48px; border-top: 1px solid #e2e8f0; font-size: 15px; }
+#son-boite .son-ligne .son-test { min-height: 44px; min-width: 96px; font-size: 16px; }
+#son-boite .son-etat { margin-top: 8px; font-size: 14px; color: #991b1b; }
+#son-boite .son-etat:empty { display: none; }
+#son-boite .son-note { margin-top: 8px; font-size: 12px; color: #64748b; }
+/* un seul ✕ pour tout le panneau : celui du bloc Sons, placé en haut */
+#son-boite ~ #push-boite #push-fermer { display: none; }
+</style>
+<script id="v178-SON">
+// ═══════════════════════════════════════════════════════════════════════
+//  v178-SON (A11) — sons d'alerte plus forts et distincts, réglables par appareil
+//  Le contexte audio (sonCtx) et son déblocage (click / touchend / pointerup / keydown / visibilitychange, persistants) restent
+//  dans le script principal (appelés tôt). Ici : table SONS, jouerSon(), préférences, essai des sons et bloc de réglages.
+//  Pas de compresseur : les notes d'un son se suivent sans se chevaucher (gain de crête ≤ 0,9 × volume ≤ 1 : aucun écrêtage).
+// ═══════════════════════════════════════════════════════════════════════
+const SON_CLE = "mtr-sons-v1";          // localStorage : { volume: 20-100, muet: bool } — propre à l'appareil
+const SON_VOLUME_MIN = 20;              // plancher : un volume à 0 ferait rater une alerte (pour se taire : « Couper les sons »)
+let sonPrefsMem = null;                 // repli si localStorage est refusé
+let SON_DELAI_SMS = 2000;               // texto entrant : on attend (ms) avant de sonner, le temps que l'Edge sms-entrant le passe à « traité »
+function sonRepeter(notes, fois, periode) {
+  const out = [];
+  for (let i = 0; i < fois; i++) notes.forEach(n => out.push([n[0], Math.round((n[1] + i * periode) * 1000) / 1000, n[2]]));
+  return out;
+}
+// Chaque alerte : onde (carrée / dent de scie pour les critiques, triangle pour les autres), gain de crête ≤ 0,9, notes [Hz, début s, durée s]
+// entre 1000 et 2000 Hz (là où le haut-parleur d'un iPad et l'oreille sont les plus efficaces), jamais deux notes en même temps.
+const SONS = {
+  chat:         { ico: "💬", lib: "Message du chat",                 onde: "triangle", gain: 0.9,  notes: [[1319, 0, 0.14], [1760, 0.18, 0.22]], vibre: [120, 60, 120] },
+  demande:      { ico: "📨", lib: "Nouvelle demande de rendez-vous", onde: "sawtooth", gain: 0.85, notes: sonRepeter([[1047, 0, 0.17], [1319, 0.2, 0.17], [1568, 0.4, 0.3]], 3, 1.05), vibre: [200, 100, 200, 100, 200, 100, 400] },
+  sms:          { ico: "💬", lib: "Texto à traiter",                 onde: "square",   gain: 0.6,  notes: sonRepeter([[1760, 0, 0.1], [1760, 0.15, 0.1], [1760, 0.3, 0.1]], 2, 0.9), vibre: [200, 100, 200, 100, 400] },
+  appel:        { ico: "📵", lib: "Appel manqué",                    onde: "sawtooth", gain: 0.8,  notes: sonRepeter(sonRepeter([[1175, 0, 0.12], [1760, 0.14, 0.12]], 3, 0.28), 2, 1.2), vibre: [400, 150, 400, 150, 400] },
+  appelEntrant: { ico: "📞", lib: "Appel entrant",                   onde: "square",   gain: 0.6,  notes: sonRepeter([[1568, 0, 0.25], [1175, 0.3, 0.35]], 2, 0.9), vibre: [300, 150, 300] },
+  rappel:       { ico: "⏰", lib: "Rappel à faire",                  onde: "triangle", gain: 0.9,  notes: [[1319, 0, 0.18], [1319, 0.26, 0.18], [1760, 0.52, 0.4]] },
+  piece:        { ico: "📦", lib: "Pièce en retard",                 onde: "triangle", gain: 0.9,  notes: [[1760, 0, 0.16], [1397, 0.2, 0.16], [1109, 0.4, 0.3]] },
+  acceptation:  { ico: "✅", lib: "Soumission acceptée",             onde: "triangle", gain: 0.9,  notes: [[1175, 0, 0.11], [1480, 0.14, 0.11], [1976, 0.28, 0.35]] },
+  session:      { ico: "⏳", lib: "Session bientôt fermée",          onde: "triangle", gain: 0.9,  notes: [[1109, 0, 0.28], [1109, 0.45, 0.28], [1109, 0.9, 0.5]] },
+};
+// ── préférences (jamais d'exception : localStorage peut être refusé) ──
+function sonPrefs() {
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem(SON_CLE) || "null"); } catch (_) { p = sonPrefsMem; }
+  if (!p || typeof p !== "object") p = {};
+  let v = (p.volume === null || p.volume === undefined || p.volume === "") ? 100 : Number(p.volume);
+  if (!isFinite(v)) v = 100;
+  return { volume: Math.max(SON_VOLUME_MIN, Math.min(100, Math.round(v))), muet: p.muet === true };
+}
+function sonPrefsSauver(nouv) {
+  const n = sonPrefs();
+  try {
+    if (nouv && nouv.volume !== undefined) { const v = Number(nouv.volume); n.volume = Math.max(SON_VOLUME_MIN, Math.min(100, Math.round(isFinite(v) ? v : 100))); }
+    if (nouv && nouv.muet !== undefined) n.muet = !!nouv.muet;
+    sonPrefsMem = n;
+    try { localStorage.setItem(SON_CLE, JSON.stringify(n)); } catch (_) {}
+    if (sonMaitre) sonMaitre.gain.value = n.volume / 100;   // le curseur agit tout de suite
+  } catch (_) {}
+  return n;
+}
+// ── chaîne audio : oscillateur → gain de la note → gain maître (volume) → sortie ──
+let sonMaitre = null, sonMaitreCtx = null;
+function sonMaitreObtenir() {
+  if (!sonCtx) return null;
+  if (!sonMaitre || sonMaitreCtx !== sonCtx) { sonMaitre = sonCtx.createGain(); sonMaitre.connect(sonCtx.destination); sonMaitreCtx = sonCtx; }
+  sonMaitre.gain.value = sonPrefs().volume / 100;
+  return sonMaitre;
+}
+// Joue l'alerte `type`. Retourne vrai si le son a été planifié, faux sinon (contexte bloqué, muet, inconnu, pas de session).
+// opts.test : joue même en muet et sans session (bouton « ▶ Tester »).
+function jouerSon(type, opts) {
+  try {
+    // JAMAIS planifier sur un contexte suspendu / « interrupted » : sur un iPad jamais touché, les sons s'empileraient à currentTime gelé
+    // et partiraient tous en rafale au premier toucher.
+    if (!sonCtx || sonCtx.state !== "running") return false;
+    const def = Object.prototype.hasOwnProperty.call(SONS, type) ? SONS[type] : null;
+    if (!def) return false;
+    const test = !!(opts && opts.test);
+    if (!test && !utilisateurCourant()) return false;      // les canaux temps réel démarrent avant la connexion : aucun son sur l'écran de connexion
+    try { if (navigator.vibrate && def.vibre) navigator.vibrate(def.vibre); } catch (_) {}   // la vibration reste active en muet (alerte discrète)
+    if (!test && sonPrefs().muet) return false;
+    const maitre = sonMaitreObtenir(); if (!maitre) return false;
+    const base = sonCtx.currentTime + 0.03;
+    def.notes.forEach(([f, debut, duree]) => {
+      const d = base + debut;
+      const o = sonCtx.createOscillator(), g = sonCtx.createGain();
+      o.type = def.onde; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, d);
+      g.gain.exponentialRampToValueAtTime(def.gain, d + 0.015);          // attaque rapide…
+      g.gain.setValueAtTime(def.gain, d + duree - 0.04);                  // …plateau (c'est lui qui donne le niveau)…
+      g.gain.exponentialRampToValueAtTime(0.0001, d + duree);             // …fin courte, sans clic
+      o.connect(g); g.connect(maitre);
+      o.start(d); o.stop(d + duree + 0.02);
+    });
+    return true;
+  } catch (_) { return false; }
+}
+// Texto entrant : sonne seulement s'il est ENCORE « à traiter » après SON_DELAI_SMS. Le trigger crée la ligne à « a_traiter » puis l'Edge
+// sms-entrant la passe à « traite » (OUI, STOP, choix de créneau…) : sonner à l'INSERT ferait une fausse alarme à chaque réponse automatique.
+// `s` = client Supabase, `id` = id de la ligne, `estATraiter(c)` = le prédicat aTraiter() de Communications.
+function sonSmsSiReste(s, id, estATraiter) {
+  try {
+    setTimeout(async () => {
+      try {
+        const r = await s.from("communications").select("*").eq("id", id).maybeSingle();
+        if (r && r.error) { jouerSon("sms"); return; }       // relecture impossible : mieux vaut une alerte de trop qu'un texto manqué
+        if (r && r.data && estATraiter(r.data)) jouerSon("sms");
+      } catch (_) { try { jouerSon("sms"); } catch (__) {} }
+    }, SON_DELAI_SMS);
+  } catch (_) {}
+}
+// ── essai d'un son (bouton « ▶ Tester ») : se fait dans un clic, donc débloque aussi l'audio ──
+async function sonTester(type) {
+  let joue = false;
+  try {
+    sonDebloquer();      // le gestionnaire du bouton passe AVANT l'écouteur global : on crée / relance le contexte nous-mêmes
+    if (sonCtx && sonCtx.state !== "running") await Promise.race([Promise.resolve(sonCtx.resume()).catch(() => {}), new Promise(r => setTimeout(r, 500))]);
+    joue = jouerSon(type, { test: true });
+  } catch (_) {}
+  try {
+    const z = document.getElementById("son-etat");
+    if (z) z.textContent = joue ? "" : "🔇 Le son est bloqué sur cet appareil. Touche l'écran, monte le volume et, sur iPhone / iPad, mets le commutateur sur sonnerie, puis réessaie.";
+  } catch (_) {}
+  return joue;
+}
+// ── bloc « Sons » du panneau Alertes et sons : rempli de façon synchrone par pushOuvrirReglages, avant l'await de pushRendre ──
+function sonReglagesRendre() {
+  const boite = document.querySelector("#push-voile .rap-boite"); if (!boite) return;
+  let z = document.getElementById("son-boite");
+  if (!z) {
+    z = document.createElement("div"); z.id = "son-boite";
+    const pb = document.getElementById("push-boite");
+    boite.insertBefore(z, pb && pb.parentNode === boite ? pb : boite.firstChild);
+  }
+  const p = sonPrefs();
+  z.innerHTML = `<div class="son-tete"><h2>🔊 Sons dans l'app</h2><button type="button" class="rap-b s" id="son-fermer" aria-label="Fermer">✕</button></div>
+    <p class="son-aide">Les alertes qui sonnent quand l'app est ouverte : nouvelle demande, texto, appel manqué, message, rappel… Ce réglage est propre à cet appareil.</p>
+    <label class="son-vol" for="son-volume"><span>Volume</span><input type="range" id="son-volume" min="${SON_VOLUME_MIN}" max="100" step="5" value="${p.volume}"><b id="son-volume-val">${p.volume} %</b></label>
+    <label class="son-muet"><input type="checkbox" id="son-muet"${p.muet ? " checked" : ""}> Couper les sons de cet appareil</label>
+    <div class="son-liste">${Object.keys(SONS).map(t => `<div class="son-ligne"><span>${SONS[t].ico} ${SONS[t].lib}</span><button type="button" class="rap-b s son-test" data-son="${t}">▶ Tester</button></div>`).join("")}</div>
+    <div class="son-etat" id="son-etat" role="status"></div>
+    <div class="son-note">« ▶ Tester » joue même si les sons sont coupés. Le volume de l'app ne dépasse jamais celui de l'appareil. Les vibrations des téléphones restent actives.</div>`;
+  const vol = z.querySelector("#son-volume"), val = z.querySelector("#son-volume-val"), muet = z.querySelector("#son-muet");
+  vol.oninput = () => { val.textContent = vol.value + " %"; sonPrefsSauver({ volume: Number(vol.value) }); };
+  vol.onchange = () => { sonTester("chat"); };         // à la fin du geste : un petit son pour juger le nouveau niveau
+  muet.onchange = () => { sonPrefsSauver({ muet: muet.checked }); };
+  z.querySelectorAll(".son-test").forEach(b => { b.onclick = () => { sonTester(b.dataset.son); }; });
+  z.querySelector("#son-fermer").onclick = () => { const v = document.getElementById("push-voile"); if (v) v.classList.remove("ouvert"); };
+}
+</script>
 <style id="v178-BTA"></style>
 <script id="v178-BTA"></script>
 </body>
