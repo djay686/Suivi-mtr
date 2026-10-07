@@ -15,6 +15,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const LIGNE_MACHINES = 1;
 const LIGNE_CLIENTS = 3;
 const SHOP = "MTR Performance";
+// v178 : variable {adresse} des gabarits de rappel (surchargeable : variable d'environnement SHOP_ADRESSE)
+const ADRESSE = Deno.env.get("SHOP_ADRESSE") || "1856 rue Jérôme-Hamel, Trois-Rivières";
 const TZ = "America/Toronto";
 const SILENCE_DEBUT = 8;           // rappels en "jours" : jamais avant 8 h
 const SILENCE_FIN = 20;            // ni après 20 h
@@ -130,6 +132,7 @@ Deno.serve(async (req) => {
       date: fmtDate(rdv), heure: fmtHeure(rdv),
       machine: m.nom || "votre véhicule",
       shop: SHOP,
+      adresse: ADRESSE,   // v178
     };
 
     if (simuler) {

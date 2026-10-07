@@ -6,6 +6,16 @@
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
+// v178 : vibration par type d'alerte (Android ; iOS ignore `vibrate`). LIMITE PLATEFORME : le SON d'une notification push est choisi par le
+// système (sonnerie, mode silencieux, Concentration), jamais par l'app : il n'est pas réglable ici. Les sons plus forts et le volume réglable
+// ne valent que pour l'app OUVERTE (index.html, jouerSon). Le défaut reste le motif d'origine.
+const VIBRATIONS = {
+  demande: [300, 150, 300, 150, 300, 150, 600],
+  sms: [200, 100, 200, 100, 400],
+  appel: [400, 150, 400, 150, 400],
+};
+const VIBRATION_DEFAUT = [200, 100, 200, 100, 400];
+
 self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { titre: "MTR Performance", corps: e.data ? e.data.text() : "" }; }
@@ -17,7 +27,7 @@ self.addEventListener("push", (e) => {
     tag: d.tag || "mtr-" + Date.now(),
     renotify: true,
     requireInteraction: d.type === "demande",   // une demande reste affichée jusqu'à ce qu'on la touche (là où c'est supporté)
-    vibrate: [200, 100, 200, 100, 400],
+    vibrate: Object.prototype.hasOwnProperty.call(VIBRATIONS, d.type) ? VIBRATIONS[d.type] : VIBRATION_DEFAUT,   // v178 : par type
     data: { url: d.url || "/", type: d.type || "info" },
   };
   e.waitUntil(self.registration.showNotification(titre, options));

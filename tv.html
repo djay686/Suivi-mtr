@@ -409,6 +409,40 @@ function duree(s) {
   return Math.max(0, brut - pause);
 }
 function nomMachine(m) { return m.nom || [m.annee, m.marque, m.modele].filter(Boolean).join(" ") || "Machine"; }
+// v178-TAB : temps restant estimé par le technicien (« Non, pas encore » → minutes) moins le travail punché DEPUIS la saisie (resteAFaire.quand).
+// Copie locale de resteMinutesDe d'index.html (la TV n'a pas accès à ses fonctions). duree() rend des MILLISECONDES : on divise par 60 000 pour soustraire des minutes.
+function resteMin(m) {
+  try {
+    var r = m && m.resteAFaire;
+    if (!r || m.travauxTermines) return 0;
+    var total = typeof r.minutes === "string" ? Number(r.minutes.replace(",", ".")) : r.minutes;
+    if (typeof total !== "number" || !isFinite(total) || total <= 0) return 0;
+    var depuis = Date.parse(r.quand);
+    if (isNaN(depuis)) return 0;                                   // estimation sans date de saisie : inexploitable
+    var maintenant = Date.now(), faitMs = 0;
+    (Array.isArray(m.chrono) ? m.chrono : []).forEach(function (s) {
+      var d0 = s ? Date.parse(s.debut) : NaN;
+      if (isNaN(d0)) return;
+      var f = s.fin ? Date.parse(s.fin) : maintenant;
+      if (isNaN(f)) return;
+      var a = Math.max(d0, depuis), b = Math.min(f, maintenant);   // recoupement avec [saisie, maintenant]
+      if (b <= a) return;
+      var pauses = [];
+      (Array.isArray(s.pauses) ? s.pauses : []).forEach(function (p) {
+        var p0 = p ? Date.parse(p.p) : NaN;
+        if (isNaN(p0)) return;
+        var p1 = Date.parse(p.r);                                  // pause encore ouverte : jusqu'à la fin du recoupement
+        var x = Math.max(p0, a), y = Math.min(isNaN(p1) ? b : p1, b);
+        if (y > x) pauses.push({ p: new Date(x).toISOString(), r: new Date(y).toISOString() });
+      });
+      faitMs += duree({ debut: new Date(a).toISOString(), fin: new Date(b).toISOString(), pauses: pauses });
+    });
+    var reste = Math.round(total - faitMs / 60000);
+    return reste > 0 ? reste : 0;
+  } catch (e) { return 0; }
+}
+function dureeTxt(min) { min = Math.round(min); if (min < 60) return min + " min"; var r = min % 60; return Math.floor(min / 60) + " h" + (r ? " " + String(r).padStart(2, "0") : ""); }
+function resteTxt(m) { var r = resteMin(m); return r > 0 ? "≈ " + dureeTxt(r) + " restant" : ""; }
 
 function rendre() {
   if (!ecran) return;
@@ -430,7 +464,7 @@ function rendreBT(m) {
     '<div class="droite">' + teteChrono(m) + '<span class="horloge" data-horloge>' + heure() + '</span></div>';
   var g = [], d = [];
   if (m.travaux) g.push('<section class="bloc"><h2>Travaux demandés</h2><div class="travaux">' + fmt(m.travaux) + '</div></section>');
-  if (m.resteAFaire && m.resteAFaire.texte) g.push('<section class="bloc reste">⏳ Reste à faire : ' + esc(m.resteAFaire.texte) + '</section>');
+  if (m.resteAFaire && m.resteAFaire.texte) g.push('<section class="bloc reste">⏳ Reste à faire : ' + esc(m.resteAFaire.texte) + (resteTxt(m) ? ' · <span data-reste>' + resteTxt(m) + '</span>' : '') + '</section>');   // v178-TAB : temps restant (minutes)
   (Array.isArray(m.checklists) ? m.checklists : []).forEach(function (cl) {
     var L = cl.lignes || [], faits = L.filter(function (l) { return l.fait; }).length;
     d.push('<section class="bloc"><h2>☑️ ' + esc(cl.nom || "Checklist") + '<small>' + faits + ' / ' + L.length + (cl.signature ? " · signée ✅" : "") + '</small></h2><ul class="liste">' +
@@ -765,6 +799,7 @@ function demarrer(branchee) {
     [].forEach.call(document.querySelectorAll("[data-horloge]"), function (el) { el.textContent = heure(); });
     var m = ecran && ecran.mode === "bt" ? btCourant() : null, el = document.querySelector("[data-chrono]");
     if (m && el) { var s = sessionDe(m, techSuivi()); if (s) el.textContent = hms(duree(s)); }
+    var er = document.querySelector("[data-reste]"); if (m && er) { var rt = resteTxt(m); if (rt) er.textContent = rt; }   // v178-TAB : le restant descend avec le travail
     var d = new Date();   // la nuit, un rechargement complet (une page ouverte des semaines finit par s'alourdir)
     if (d.getHours() === 3 && d.getMinutes() === 30 && Date.now() - demarre > 3600000) location.reload();
   }, 1000);
