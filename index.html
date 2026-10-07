@@ -3342,6 +3342,21 @@ function basculerTheme() {
       <button type="button" class="live-tech-btn" style="background:var(--danger)" onclick="liveFinNon()">❌ Non, pas encore</button>
     </div>
     <div id="live-fin-reste" style="display:none">
+      <!-- v178-TAB : temps restant obligatoire, AVANT le texte (le clavier de l'iPad masquerait des pastilles placées dessous) ; aucune pastille présélectionnée -->
+      <div class="live-lbl" id="live-fin-min-lbl">Temps approximatif restant, pour tout le bon *</div>
+      <div class="live-fin-mins" id="live-fin-mins" role="group" aria-labelledby="live-fin-min-lbl">
+        <button type="button" class="live-fin-min" data-min="15" aria-pressed="false" onclick="liveFinMinChoisir(15)">15 min</button>
+        <button type="button" class="live-fin-min" data-min="30" aria-pressed="false" onclick="liveFinMinChoisir(30)">30 min</button>
+        <button type="button" class="live-fin-min" data-min="60" aria-pressed="false" onclick="liveFinMinChoisir(60)">1 h</button>
+        <button type="button" class="live-fin-min" data-min="120" aria-pressed="false" onclick="liveFinMinChoisir(120)">2 h</button>
+        <button type="button" class="live-fin-min" data-min="240" aria-pressed="false" onclick="liveFinMinChoisir(240)">4 h</button>
+        <button type="button" class="live-fin-min" data-min="480" aria-pressed="false" onclick="liveFinMinChoisir(480)">Journée</button>
+        <button type="button" class="live-fin-min" data-min="autre" aria-pressed="false" onclick="liveFinMinAutre()">Autre…</button>
+      </div>
+      <div class="live-fin-autre" id="live-fin-autre" style="display:none">
+        <input type="number" class="champ" id="live-fin-min-autre" inputmode="numeric" min="5" step="5" placeholder="Minutes" aria-label="Temps restant en minutes (5 minutes ou plus)" oninput="liveFinMinSaisie(this.value)">
+        <span>minutes</span>
+      </div>
       <label class="live-lbl" for="live-fin-texte">Qu'est-ce qu'il reste à faire pour terminer ? *</label>
       <textarea class="champ" id="live-fin-texte" rows="4" placeholder="Ex. : attendre le joint de culasse, refaire l'essai routier…"></textarea>
       <div class="mw-pied">
@@ -6117,6 +6132,68 @@ function toastAviser(texte, ok) {
 let avenirDeplie = false;
 function basculerAvenirPlusTard() { avenirDeplie = !avenirDeplie; afficher(); }
 
+// ── v178-TAB : jours depuis l'arrivée, tri des colonnes et temps restant sur les cartes (A7) ──
+// Ces fonctions sont dans le script principal (comme les helpers S0b) : le premier afficher() passe avant le chargement
+// des blocs suivants, et la carte doit être juste dès le premier rendu. Elles ne dépendent que des helpers S0b.
+// Tri d'une colonne : le plus ancien en haut (clé = arriveeDe(m).date, comparée en temps réel), sans date en bas, stable.
+// liveDabord : les bons en direct (session chrono ouverte) passent en tête, eux aussi du plus ancien au plus récent.
+function arriveeTrier(liste, liveDabord) {
+  try {
+    const deco = liste.map((m, i) => {
+      const a = arriveeDe(m);
+      return { m, i, t: a ? dateLisibleMs(a.date) : null, live: !!liveDabord && liveSessions(m).length > 0 };
+    });
+    deco.sort((x, y) => {
+      if (x.live !== y.live) return x.live ? -1 : 1;
+      if (x.t === null || y.t === null) return x.t === y.t ? x.i - y.i : (x.t === null ? 1 : -1);   // pas de date : en bas
+      if (x.t < y.t) return -1;                                                                    // < et >, jamais une soustraction
+      if (x.t > y.t) return 1;
+      return x.i - y.i;                                                                            // égalité : ordre d'origine (tri stable)
+    });
+    return deco.map(d => d.m);
+  } catch (_) { return liste; }
+}
+// « 🚜 Arrivée depuis N jours » (« aujourd'hui » à 0, singulier à 1) ; date approximative (repli sur la création du bon) :
+// « 🚜 ≈ N jours » en gris, jamais en rouge ; rouge (vieux) seulement à ARRIVEE_JOURS_VIEUX jours et plus avec une date sûre.
+function arriveeBadgeHTML(m) {
+  try {
+    const a = arriveeDe(m), j = arriveeJours(m);
+    if (!a || j === null) return "";
+    const nj = j === 0 ? "aujourd'hui" : j + " jour" + (j > 1 ? "s" : "");
+    const le = new Date(a.date).toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
+    if (a.source === "creeLe") return `<span class="badge badge-arrivee approx" title="Date approximative : le bon a été créé le ${echap(le)}, l'arrivée de la machine n'a pas été notée">🚜 ≈ ${nj}</span>`;
+    return `<span class="badge badge-arrivee${j >= ARRIVEE_JOURS_VIEUX ? " vieux" : ""}" title="Arrivée le ${echap(le)}">🚜 Arrivée ${j === 0 ? nj : "depuis " + nj}</span>`;
+  } catch (_) { return ""; }
+}
+// Heure à laquelle le technicien a noté le temps restant : « 16:40 », « hier 16:40 » ou « 05/10 16:40 »
+function resteQuandTxt(iso) {
+  const t = dateLisibleMs(iso);
+  if (t === null) return "";
+  const d = new Date(t), hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  const hier = new Date(); hier.setDate(hier.getDate() - 1);
+  const j = isoLocal(d);
+  if (j === isoLocal(new Date())) return hm;
+  if (j === isoLocal(hier)) return "hier " + hm;
+  return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + " " + hm;
+}
+// Ligne de la carte sur le reste à faire, à UN seul endroit : « ⏳ Reste ~1 h 30 (noté 16:40) : texte » quand le technicien a noté un
+// temps restant (resteMinutesDe) ; sans minutes la carte reste « ⏳ Reste : texte ». Q24 : sur une carte EN DIRECT sans aucune estimation,
+// repli gris « ⏱ ~X (estimé) » (durée de la fiche − temps punché, via ordreResteAuto) ; jamais rouge, jamais sur les autres colonnes.
+function resteBadgeHTML(m) {
+  try {
+    const r = m && m.resteAFaire, texte = r && r.texte ? String(r.texte) : "";
+    const min = resteMinutesDe(m);
+    let h = "";
+    if (min) h += `<span class="badge badge-reste">⏳ Reste ~${dureeTxtLocale(min)} (noté ${resteQuandTxt(r.quand)})${texte ? " : " + echap(texte).slice(0, 90) : ""}</span>`;
+    else if (texte) h += `<span class="badge badge-reste">⏳ Reste : ${echap(texte).slice(0, 90)}</span>`;
+    if (!min && m.statut === "reparation" && liveSessions(m).length && !(r && Number(r.minutes) > 0) && typeof ordreResteAuto === "function") {
+      const e = ordreResteAuto(m);
+      if (e > 0) h += `<span class="badge badge-estime" title="Estimation : durée de la fiche moins le temps déjà punché (le technicien n'a pas noté de temps restant)">⏱ ~${dureeTxtLocale(e)} (estimé)</span>`;
+    }
+    return h ? `<div class="badges">${h}</div>` : "";
+  } catch (_) { return ""; }
+}
+
 function afficher() {
   const q = document.getElementById("recherche").value.toLowerCase();
   const filtrees = machines.filter(m =>
@@ -6136,6 +6213,7 @@ function afficher() {
   // Colonnes
   document.getElementById("colonnes").innerHTML = STATUTS.filter(s => tbVisible("colonnes", s.id)).map(s => {
     let liste = filtrees.filter(m => m.statut === s.id);
+    if (s.id === "sansrdv" || s.id === "attente" || s.id === "reparation") liste = arriveeTrier(liste, s.id === "reparation");   // v178-TAB : le plus ancien en haut ; Réparation : bons en direct en tête
     if (s.id === "avenir") {
       liste = [...liste].sort((a, b) => {
         const ka = a.echeance ? a.echeance + "T" + (a.heure || "23:59") : "9999";
@@ -11096,10 +11174,11 @@ function carteHTML(m, statut) {
       <button class="btn-toggle ${m.pieceComplete ? "vert" : "rouge"}${(!piecesOK && !m.pieceComplete) ? " bloque" : ""}" onclick="basculer('${m.id}','pieceComplete')">${m.pieceComplete ? "✓" : (!piecesOK ? "🔒" : "✗")} Pièce complète${compteurP}</button>` : "";
   const badgePieces = (m.pieces && m.pieces.length)
     ? `<span class="badge-pieces ${nbP.ok === nbP.total ? "completes" : ""}">📦 ${nbP.ok}/${nbP.total} pièce(s)</span>` : "";
+  const badgeArr = arriveeBadgeHTML(m);   // v178-TAB : « 🚜 Arrivée depuis N jours » (script principal, avant afficher)
   const badges = m.statut !== "avenir" ? [
-      m.machineArrivee ? `<span class="badge">🚜 Machine sur place</span>` : "",
+      badgeArr || (m.machineArrivee ? `<span class="badge">🚜 Machine sur place</span>` : ""),   // v178-TAB : la date remplace « Machine sur place » quand elle existe
       m.pieceComplete ? `<span class="badge">📦 Pièces complètes</span>` : "",
-    ].filter(Boolean).join("") : "";
+    ].filter(Boolean).join("") : badgeArr;   // v178-TAB : une carte « À venir » arrivée gagne une ligne .badges de plus
   // v143 — dans « Prêt à facturer » et « Assurance », le vrai compteur est le badge
   // juste en dessous : on laisse la date d'échéance sous son nom honnête.
   const dateLbl = m.statut === "prete" ? "Prête depuis" : "Échéance";
@@ -11137,7 +11216,7 @@ function carteHTML(m, statut) {
       ${m.echeance ? `<div class="echeance${retard ? " retard" : ""}">${retard ? "⚠️ " : ""}${dateAffichee}${retard ? " — en retard" : ""}</div>` : ""}
       ${rdvSansSoumission(m) ? `<div class="badges"><span class="badge badge-sans-soum" title="${RDV_SANS_SOUM_TITRE_V157}">⚠️ Sans soumission</span></div>` : ""}
       ${sLive ? `<div class="badges"><span class="badge badge-live">🔴 ${echap(sLive.tech)} en direct</span></div>` : ""}
-      ${m.travauxTermines ? `<div class="badges"><span class="badge badge-termine">✅ Travaux terminés${m.travauxTerminesPar ? " · " + echap(m.travauxTerminesPar) : ""}</span></div>` : (m.resteAFaire && m.resteAFaire.texte ? `<div class="badges"><span class="badge badge-reste">⏳ Reste : ${echap(m.resteAFaire.texte).slice(0, 90)}</span></div>` : "")}
+      ${m.travauxTermines ? `<div class="badges"><span class="badge badge-termine">✅ Travaux terminés${m.travauxTerminesPar ? " · " + echap(m.travauxTerminesPar) : ""}</span></div>` : /* v178-TAB : « ⏳ Reste ~1 h 30 (noté 16:40) : texte » + repli gris « (estimé) » en direct */ resteBadgeHTML(m)}
       ${badgeAttente ? `<div class="badges">${badgeAttente}</div>` : ""}
       ${badgeFacture ? `<div class="badges">${badgeFacture}</div>` : ""}
       ${badgePieces ? `<div class="badges">${badgePieces}</div>` : ""}
@@ -11188,6 +11267,7 @@ function deplacer(id, statut) {
   }
   if (!confirm(`Déplacer « ${m.nom} »\nde « ${libelle(m.statut)} » vers « ${libelle(statut)} » ?`)) return;
   if (statut === "attente" && !attenteVerifierPieces(m)) return;
+  try { arriveePoser(m, statut); } catch (_) {}   // v178-TAB : date d'arrivée (« À venir » → Sans rendez-vous) ; lit l'ancien statut, donc avant la ligne suivante
   m.statut = statut;
   // v143 — horodatage d'entrée, pour afficher depuis combien de temps un bon
   // dort dans « Prêt à facturer » ou dans « Assurance »
@@ -11692,6 +11772,7 @@ function valider() {
   if (idEdition) {
     const m = machines.find(x => x.id === idEdition);
     const dureeAvant = m.dureeEstimee;
+    try { arriveePoser(m, donnees.statut); } catch (_) {}   // v178-TAB : « À venir » → colonne d'atelier par le formulaire : date d'arrivée posée (contourne deplacer)
     Object.assign(m, donnees);
     // La main-d'œuvre de la soumission liée suit la durée du rendez-vous
     if (typeof rdvSyncSoumission === "function") rdvSyncSoumission(m, dureeAvant);
@@ -21014,7 +21095,7 @@ function liveRendre() {
         <div><span class="live-lbl">Statut</span><b>${echap(libelle(m.statut))}</b></div>
         <div><span class="live-lbl">Km / heures</span><b>${m.kilometrage ? echap(m.kilometrage) + " km" : ""}${m.kilometrage && m.heuresMachine ? " · " : ""}${m.heuresMachine ? echap(m.heuresMachine) + " h" : ""}${!m.kilometrage && !m.heuresMachine ? "—" : ""}</b></div>
       </div>
-      ${m.resteAFaire && m.resteAFaire.texte ? `<div class="live-import" style="margin-top:10px">⏳ <b>Reste à faire</b> (${echap(m.resteAFaire.tech || "")}) : ${echap(m.resteAFaire.texte)}</div>` : ""}
+      ${m.resteAFaire && m.resteAFaire.texte ? `<div class="live-import" style="margin-top:10px">⏳ <b>Reste à faire</b> (${echap(m.resteAFaire.tech || "")}) : ${echap(m.resteAFaire.texte)}${/* v178-TAB */ resteMinutesDe(m) ? " — ≈ " + dureeTxtLocale(resteMinutesDe(m)) + " restant" : ""}</div>` : ""}
       <div class="live-lbl" style="margin-top:10px">Travaux demandés</div>
       <div class="live-travaux">${echap(m.travaux || "—")}</div>
     </section>
@@ -22164,6 +22245,7 @@ function liveFinOuvrir() {
   document.getElementById("live-fin-reste").style.display = "none";
   document.getElementById("live-fin-annuler").style.display = "";
   document.getElementById("live-fin-texte").value = (m.resteAFaire && m.resteAFaire.texte) || "";
+  try { liveFinMinReset(0); } catch (_) {}   // v178-TAB : aucune pastille de temps présélectionnée
   document.getElementById("live-fin").classList.add("ouvert");
 }
 function liveFinAnnuler() { document.getElementById("live-fin").classList.remove("ouvert"); }
@@ -22176,7 +22258,7 @@ function liveFinNon() {
   document.getElementById("live-fin-choix").style.display = "none";
   document.getElementById("live-fin-reste").style.display = "block";
   document.getElementById("live-fin-annuler").style.display = "none";
-  setTimeout(() => document.getElementById("live-fin-texte").focus(), 60);
+  // v178-TAB : plus de focus automatique sur le texte : le clavier de l'iPad cacherait les pastilles de temps, à choisir en premier
 }
 function liveFinOui() {
   const m = liveM(); if (!m) return;
@@ -22209,15 +22291,21 @@ function liveFinValider() {
   const m = liveM(); if (!m) return;
   const s = liveMaSession(m); if (!s) { liveFinAnnuler(); return; }
   const texte = document.getElementById("live-fin-texte").value.trim();
+  const minutes = liveFinMinLire();   // v178-TAB : temps restant obligatoire (entier, 5 min ou plus)
+  if (!minutes) { alert("Indique le temps approximatif restant, pour tout le bon (touche une durée, ou « Autre… » : 5 minutes ou plus)."); return; }   // v178-TAB : la session reste ouverte
   if (!texte) { alert("Écris ce qu'il reste à faire pour terminer."); document.getElementById("live-fin-texte").focus(); return; }
   m.travauxTermines = false;
-  m.resteAFaire = { texte, tech: s.tech, quand: new Date().toISOString() };
-  liveNotes(m).push({ texte: "⏳ Reste à faire : " + texte, tech: s.tech, quand: m.resteAFaire.quand });
-  liveMajNotesTech(m);
   liveFinAnnuler();
-  liveFermerSession(s);
+  liveFermerSession(s);   // v178-TAB : la session est fermée AVANT la saisie de `quand`, pour que resteMinutesDe ne la recompte pas
+  const quand = new Date().toISOString();   // v178-TAB
+  m.resteAFaire = { texte, tech: s.tech, quand, minutes };   // v178-TAB : minutes = champ du contrat (lu par resteMinutesDe)
+  if (!Array.isArray(m.resteHisto)) m.resteHisto = [];   // v178-TAB : historique des estimations (jamais effacé par « Oui, terminés »)
+  m.resteHisto.push({ minutes, tech: s.tech, quand });   // v178-TAB
+  if (m.resteHisto.length > 30) m.resteHisto = m.resteHisto.slice(-30);   // v178-TAB
+  liveNotes(m).push({ texte: "⏳ Reste à faire : " + texte + " (≈ " + dureeTxtLocale(minutes) + " restant)", tech: s.tech, quand });   // v178-TAB
+  liveMajNotesTech(m);
   sauvegarder();
-  toastAviser(`⏹ Session de ${s.tech} fermée — reste à faire noté`, true);
+  toastAviser(`⏹ Session de ${s.tech} fermée — reste à faire noté (≈ ${dureeTxtLocale(minutes)})`, true);   // v178-TAB
   fermerLive();
 }
 
@@ -22989,7 +23077,7 @@ function rendreEcranTech() {
       <div class="tm-haut"><span class="tm-bt">${echap(m.numeroBT || "—")}</span>${m.numeroMachine ? `<span class="tm-num">🏷️ ${echap(m.numeroMachine)}</span>` : ""}</div>
       <div class="tm-nom">${echap(nomMachine(m))}</div>
       <div class="tm-client">${echap(m.client || "")}${m.travaux ? " · " + echap(m.travaux).slice(0, 60) : ""}</div>
-      <div class="tm-etat"><span>${echap(libelle(m.statut))}${techAVenir(m) && m.echeance ? " · " + echap(tchDate(m.echeance)) + (m.heure ? " " + echap(m.heure) : "") : ""}</span>${m.statut === "avenir" && m.machineArrivee ? `<span class="moi">🚜 arrivée</span>` : ""}${liveSessions(m).length ? `<span class="live">🔴 ${echap(liveNomsLive(m))}</span>` : ""}${m.technicien === e.nom ? `<span class="moi">assignée à moi</span>` : ""}${m.lieu ? `<span>📍 ${echap(lieuTexte(m))}</span>` : ""}${m.resteAFaire && m.resteAFaire.texte ? `<span>⏳ ${echap(m.resteAFaire.texte).slice(0, 40)}</span>` : ""}</div>
+      <div class="tm-etat"><span>${echap(libelle(m.statut))}${techAVenir(m) && m.echeance ? " · " + echap(tchDate(m.echeance)) + (m.heure ? " " + echap(m.heure) : "") : ""}</span>${m.statut === "avenir" && m.machineArrivee ? `<span class="moi">🚜 arrivée</span>` : ""}${liveSessions(m).length ? `<span class="live">🔴 ${echap(liveNomsLive(m))}</span>` : ""}${m.technicien === e.nom ? `<span class="moi">assignée à moi</span>` : ""}${m.lieu ? `<span>📍 ${echap(lieuTexte(m))}</span>` : ""}${m.resteAFaire && m.resteAFaire.texte ? `<span>⏳ ${/* v178-TAB */ resteMinutesDe(m) ? "~" + dureeTxtLocale(resteMinutesDe(m)) + " · " : ""}${echap(m.resteAFaire.texte).slice(0, 40)}</span>` : ""}</div>
     </button>`;
   };
   const enCours = atelier.filter(m => !techAVenir(m) && rang(m) < 5), aVenir = atelier.filter(techAVenir), finis = atelier.filter(m => !techAVenir(m) && rang(m) >= 5);
@@ -24542,6 +24630,8 @@ async function demarrerDonnees() {
   marketMajBadge();               // v92 : pastille « Marketplace » (articles en vente)
   invMajDatalist();               // autocomplétion des n° de pièce partout
   //@@v178-TAB demarrerDonnees
+  // v178-TAB : les « N jours » du tableau avancent à minuit. On ne redessine qu'au changement de jour civil, jamais chaque minute (un re-rendu casse le glisser-déposer et le défilement sur iPad).
+  try { let jourVu = isoLocal(new Date()); setInterval(() => { try { const j = isoLocal(new Date()); if (j !== jourVu) { jourVu = j; afficher(); } } catch (_) {} }, 60000); } catch (_) {}
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -29530,7 +29620,10 @@ function ordreJourTxt(iso, auj) {
 function ordreNomCourt(m) { return calNomClient(m) || nomMachine(m); }
 function ordrePeutModifier() { const u = utilisateurCourant(); return !u || estAdmin(); }
 function ordreTravailleMin(m) { return Math.round((Array.isArray(m.chrono) ? m.chrono : []).reduce((t, s) => t + liveDuree(s), 0) / 60000); }
-function ordreResteAuto(m) { return Math.max(15, Math.ceil(((Number(m.dureeEstimee) || 60) - ordreTravailleMin(m)) / ORDRE_PAS) * ORDRE_PAS); }   // arrondi aux 5 min
+function ordreResteAuto(m) {
+  try { const r = resteMinutesDe(m); if (r > 0) return Math.max(15, Math.ceil(r / ORDRE_PAS) * ORDRE_PAS); } catch (_) {}   // v178-TAB : le temps restant noté par le technicien (« Non, pas encore ») prime sur la formule
+  return Math.max(15, Math.ceil(((Number(m.dureeEstimee) || 60) - ordreTravailleMin(m)) / ORDRE_PAS) * ORDRE_PAS);   // arrondi aux 5 min
+}
 // Horaire fixé à la main, encore valable (aujourd'hui ou plus tard)
 function ordrePlanifDe(m, auj) {
   const p = m && m.planif;
@@ -31058,6 +31151,55 @@ try {
 .pcs-plus { text-align: center; padding: 6px 0; }
 </style>
 <script id="v178-PCS"></script>
+<!-- v178 : un bloc de style et un bloc de script par lot (CSS et JS neufs de chaque lot ; vides au socle) -->
+<style id="v178-COM">
+/* v178-COM (A3) : « Bons de travail du client » (note d'appel, fil) + bouton BT du popup d'appel Linkus */
+.comm-bts{border:1px solid #bbf7d0;background:#f0fdf4;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;min-width:0}
+.comm-bts-titre{font-size:12px;font-weight:700;color:#166534}
+.comm-bt{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #dcfce7;padding-top:6px}
+.comm-bt:first-of-type{border-top:0;padding-top:0}
+.comm-bt-info{flex:1 1 220px;min-width:0;font-size:14px;color:#111;overflow-wrap:anywhere}
+.comm-bt-btns{display:flex;gap:6px;flex-wrap:wrap}
+.comm-bt-btns .comm-btn{min-height:44px;padding:8px 12px;font-size:14px}
+.comm-bts .info{font-size:12px;color:#475569}
+.comm-bts-fil{flex:none;max-height:34vh;overflow:auto;margin:0 12px 6px;-webkit-overflow-scrolling:touch}
+.comm-fil-corps{min-height:140px}
+.comm-chip-bt{border:1px solid #93c5fd;background:#dbeafe;color:#1e40af;cursor:pointer;font:inherit;font-size:11px;padding:4px 10px}
+.comm-propo-bt .btns{flex-wrap:wrap}
+.comm-propo-bt .btns .comm-btn[data-a="bt"]{flex:1 1 100%;min-height:44px}
+.comm-propo-bt + .comm-propo{bottom:236px}
+@media (max-width:520px){.comm-bt-btns{width:100%}.comm-bt-btns .comm-btn{flex:1 1 110px}.comm-bts-fil{max-height:30vh}}
+</style>
+<script id="v178-COM">
+// v178-COM : empile les popups d'appel Linkus selon leur hauteur réelle (le 1er peut porter le bouton « 📋 Ouvrir le BT », donc être plus haut) —
+// sans toucher à proposerNote ni à fermerProposition : on observe seulement l'ajout / le retrait de .comm-propo dans <body>.
+try {
+  const empiler = () => {
+    const l = document.querySelectorAll(".comm-propo"); if (!l.length) return;
+    let bas = 18; l.forEach(e => { e.style.bottom = bas + "px"; bas += e.offsetHeight + 12; });
+  };
+  new MutationObserver(empiler).observe(document.body, { childList: true });
+} catch (_) {}
+</script>
+<style id="v178-PCS">
+/* v178-PCS — recherche de pièce BRP depuis un bon de travail (Pièces à commander, carte, BT live) */
+#voile-commandes h2 .pcs-brp-btn { margin-left: auto; font-size: 13px; padding: 6px 10px; min-height: 36px; font-weight: 700; border-color: #F5B400; background: rgba(245,180,0,.12); color: var(--encre); }
+#voile-commandes h2 .pcs-brp-btn + button { margin-left: 0 !important; }   /* le bouton Délais (gestion) suit le bouton BRP sans pousser deux fois à droite */
+.pcs-carte-pied { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--bordure); }
+.pcs-carte-brp { min-height: 44px; font-size: 13.5px; font-weight: 700; padding: 8px 14px; border-color: #F5B400; background: rgba(245,180,0,.12); color: var(--encre); }
+.pcs-brp-tag { font-weight: 700; color: var(--encre-2); }
+.pcs-champ { font-size: 16px; width: 100%; box-sizing: border-box; min-height: 44px; }
+.pcs-liste { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: min(52vh, 440px); overflow-y: auto; }
+.pcs-bon { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; box-sizing: border-box; min-height: 44px; padding: 8px 12px; text-align: left; font: inherit; font-size: 14px; color: var(--encre); background: var(--surface); border: 1.5px solid var(--bordure); border-radius: 9px; cursor: pointer; }
+.pcs-bon:hover, .pcs-bon:focus-visible { border-color: #F5B400; background: rgba(245,180,0,.10); outline: none; }
+.pcs-bon.pcs-live { border-color: var(--c-repar, #2F7D4F); }
+.pcs-bon-t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pcs-bon-st { font-size: 11.5px; color: var(--sourdine); }
+.pcs-bon-m { font-size: 12.5px; color: var(--encre-2); overflow-wrap: anywhere; }
+.pcs-pastille { font-size: 11px; font-weight: 800; color: #fff; background: #B3261E; border-radius: 999px; padding: 1px 8px; }
+.pcs-plus { text-align: center; padding: 6px 0; }
+</style>
+<script id="v178-PCS"></script>
 <style id="v178-FAC">
   /* v178-FAC — 📝 Notes d'atelier dans Facturer */
   #fact-notes { border:1px solid var(--bordure); background:var(--surface-2); border-radius:10px; margin:0 0 10px; }
@@ -31134,8 +31276,74 @@ function factNoteBrouillon() {
   if (factBtId && c && String(c.value || "").trim()) factNoteAjouter(true);
 }
 </script>
-<style id="v178-TAB"></style>
-<script id="v178-TAB"></script>
+<style id="v178-TAB">
+/* v178-TAB : jours depuis l'arrivée (A7), repli « estimé » (Q24) et pastilles de temps restant à la fermeture de session (A8).
+   Deux classes de spécificité : la règle .badge générique (plus haut dans le CSS principal) vient APRÈS .badge-live / .badge-reste. */
+.badge.badge-arrivee { background: var(--surface-2); color: var(--encre); font-weight: 700; }
+.badge.badge-arrivee.vieux { background: var(--f-danger); color: var(--danger); font-weight: 800; }          /* 7 jours et plus, date sûre */
+.badge.badge-arrivee.approx { background: var(--surface-2); color: var(--sourdine); font-weight: 600; }      /* date approximative : gris, jamais rouge */
+.badge.badge-arrivee.approx.vieux { background: var(--surface-2); color: var(--sourdine); font-weight: 600; }
+.badge.badge-estime { background: var(--surface-2); color: var(--sourdine); font-weight: 600; white-space: normal; }
+.live-fin-mins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0 10px; }
+.live-fin-min { min-height: 44px; padding: 8px 6px; border: 1.5px solid var(--bordure); border-radius: 10px; background: var(--surface-2); color: var(--encre); font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.live-fin-min:hover { border-color: var(--accent); }
+.live-fin-min.actif { background: var(--c-repar); border-color: var(--c-repar); color: #fff; }
+.live-fin-autre { align-items: center; gap: 8px; margin: 0 0 10px; font-size: 14px; color: var(--sourdine); }
+.live-fin-autre .champ { width: 130px; min-height: 44px; font-size: 16px; }
+#live-fin-reste .live-lbl { margin-top: 2px; }
+#live-fin-reste textarea.champ { margin: 4px 0 10px; }
+@media (max-width: 520px) { .live-fin-mins { grid-template-columns: repeat(3, 1fr); } }
+</style>
+<script id="v178-TAB">
+// ═══════════ v178-TAB : date d'arrivée (A7-3) et temps restant à la fermeture de session (A8) ═══════════
+// Le tri, les badges et la ligne « Reste » de la carte sont dans le script principal (arriveeTrier, arriveeBadgeHTML, resteBadgeHTML) :
+// le premier afficher() passe avant le chargement de ce bloc.
+
+// A7-3 : un bon qui quitte « À venir » pour une colonne d'atelier SANS que la machine ait été marquée arrivée ni qu'une date d'arrivée existe
+// reçoit arriveeLe = maintenant. Appelée AVANT l'affectation du nouveau statut (m.statut est l'ancien) par deplacer et par le formulaire
+// d'édition. Rien dans liveConnecterFinal ni basculer : le premier punch sert de repli, et un ancien bon arrivé garde son compteur.
+function arriveePoser(m, vers) {
+  if (!m || m.statut !== "avenir") return;
+  if (vers !== "sansrdv" && vers !== "attente" && vers !== "reparation") return;
+  if (m.machineArrivee || m.arriveeLe) return;
+  m.arriveeLe = new Date().toISOString();
+}
+
+// A8-2 : pastilles de temps restant de la fenêtre « Les travaux sont-ils terminés ? → Non, pas encore ».
+let liveFinMin = 0;                 // temps restant choisi, en minutes entières (0 = aucun choix : l'enregistrement est refusé)
+let liveFinMinEstAutre = false;     // « Autre… » est la pastille active
+function liveFinMinMarquer() {
+  document.querySelectorAll("#live-fin-mins .live-fin-min").forEach(b => {
+    const d = b.getAttribute("data-min");
+    const actif = d === "autre" ? liveFinMinEstAutre : (!liveFinMinEstAutre && Number(d) === liveFinMin);
+    b.classList.toggle("actif", actif);
+    b.setAttribute("aria-pressed", actif ? "true" : "false");
+  });
+  const z = document.getElementById("live-fin-autre");
+  if (z) z.style.display = liveFinMinEstAutre ? "flex" : "none";
+}
+function liveFinMinChoisir(min) { liveFinMinEstAutre = false; liveFinMin = Math.round(Number(min)) || 0; liveFinMinMarquer(); }
+function liveFinMinAutre() {
+  liveFinMinEstAutre = true;
+  const c = document.getElementById("live-fin-min-autre");
+  liveFinMinSaisie(c ? c.value : 0);                           // case vide : rien n'est encore choisi
+  liveFinMinMarquer();
+  if (c) setTimeout(() => { try { c.focus(); } catch (_) {} }, 30);
+}
+// Minutes entières ; la virgule décimale est acceptée (« 7,6 » → 8) ; illisible ou négatif → 0 ; plafonné à 9 999 min
+function liveFinMinSaisie(v) { const n = Math.round(Number(String(v == null ? "" : v).replace(",", "."))); liveFinMin = isFinite(n) && n > 0 ? Math.min(n, 9999) : 0; }
+// Le temps restant valide (5 minutes ou plus), sinon 0
+function liveFinMinLire() { return liveFinMin >= 5 ? liveFinMin : 0; }
+// À l'ouverture de la fenêtre : aucune pastille (prefill = 0) ; un prefill ≥ 5 allume la pastille qui lui correspond (ou « Autre… »)
+function liveFinMinReset(prefill) {
+  const p = Math.round(Number(prefill)) || 0;
+  liveFinMin = p > 0 ? p : 0;
+  liveFinMinEstAutre = liveFinMin > 0 && [15, 30, 60, 120, 240, 480].indexOf(liveFinMin) < 0;
+  const c = document.getElementById("live-fin-min-autre");
+  if (c) c.value = liveFinMinEstAutre ? String(liveFinMin) : "";
+  liveFinMinMarquer();
+}
+</script>
 <style id="v178-CALA"></style>
 <script id="v178-CALA"></script>
 <style id="v178-CALB">
