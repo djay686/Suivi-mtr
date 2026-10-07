@@ -1,5 +1,5 @@
 // ============================================================
-// Fonction Edge : sms-entrant  (MTR Performance, v172)
+// Fonction Edge : sms-entrant  (MTR Performance, v178)
 // Webhook Twilio « A MESSAGE COMES IN ».
 //
 //   STOP / ARRÊT → marque le client désabonné (c.smsStop, ligne 3)
@@ -28,6 +28,19 @@
 //   (sms_out, meta.origine « auto ») : la conversation se voit au complet.
 //   Avant, elle partait à Twilio sans laisser de trace dans le fil.
 //   Et le bon créé à la confirmation reçoit les services cochés + la description.
+// ✚ v178 : la confirmation d'un rendez-vous par texto est TRACÉE et protégée.
+//   • verrou atomique : la demande passe de « creneaux_envoyes » à « confirmee » par un update conditionnel ;
+//     un webhook en double (nouvel essai Twilio, deux « 1 » rapprochés) n'écrit pas un 2e bon ;
+//   • si une exception survient avant l'écriture du bon, la demande revient à « creneaux_envoyes » ;
+//   • UN seul update final (bt_id + confirmation_envoyee_le) au lieu de plusieurs ;
+//   • une ligne rappels_envoyes (type confirmation, rappel_id NULL, canal « twiml ») garde la trace : la fiche
+//     de la demande affiche « ✓ envoyé ». Canal « twiml » : le déclencheur comm_depuis_rappels l'ignore, donc le fil
+//     📞 Communications garde UNE seule ligne (celle de noterReponse, 🤖 SMS automatique) ;
+//   • {adresse} dans le texte par défaut et dans les variables du gabarit ;
+//   • capacité par technicien : un créneau proposé avec « techs » (noms de tous les techniciens capables)
+//     reste libre tant que le nombre de bons/retenus qui chevauchent est inférieur au nombre de techs ;
+//     sans « techs » (créneau d'avant la v178) : capacité 1, comme avant.
+//   Aucun appel REST Twilio : la confirmation part par la réponse TwiML (inchangé).
 //
 //   ?diag → état des secrets, sans rien écrire
 // ============================================================
@@ -39,6 +52,8 @@ const LIGNE_CLIENTS = 3;
 const LIGNE_PARAMS = 7;
 const SHOP = "MTR Performance";
 const TEL_SHOP = "819-489-0477";
+// v178 : adresse de l'atelier pour la confirmation par texto (surchargeable : variable d'environnement SHOP_ADRESSE)
+const ADRESSE = Deno.env.get("SHOP_ADRESSE") || "1856 rue Jérôme-Hamel, Trois-Rivières";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
@@ -51,6 +66,8 @@ const TW_TOKEN = secret("TWILIO_AUTH_TOKEN", "TWILIO_TOKEN", "AUTH_TOKEN");
 const TW_FROM  = secret("TWILIO_FROM", "TWILIO_PHONE", "TWILIO_PHONE_NUMBER", "TWILIO_NUMERO", "TWILIO_NUMBER", "TWILIO_FROM_NUMBER", "FROM_NUMBER");
 
 const tel10 = (t?: string | null) => { const d = String(t || "").replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : ""; };
+// v178 : numéro au format +1XXXXXXXXXX pour la trace de la confirmation (le numéro brut du client sinon)
+const tel164 = (t?: string | null) => { const d = tel10(t); return d ? "+1" + d : String(t || ""); };
 const twiml = (msg?: string) => new Response(
   msg ? `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${msg.replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]!))}</Message></Response>`
       : `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`,
@@ -101,7 +118,12 @@ async function marquerStop(tel: string) {
   return n;
 }
 
-async function plageLibre(iso: string, heure: string, dureeMin: number, saufDemande: string) {
+// v178 : « techs » = noms de TOUS les techniciens capables, figés à la proposition des créneaux (demandes_service.creneaux[].techs).
+//   • techs absent / vide (créneau proposé avant la v178) → capacité 1 : le moindre chevauchement refuse (comportement d'avant) ;
+//   • sinon la plage reste libre tant que le nombre d'occupants qui chevauchent est INFÉRIEUR au nombre de techniciens.
+// Un occupant = un bon non archivé du jour avec heure (épinglé à un technicien ou non : il compte pour un) ou un créneau
+// retenu d'une AUTRE demande. Rien n'est lu côté serveur sur les employés, les horaires ou les fériés.
+async function plageLibre(iso: string, heure: string, dureeMin: number, saufDemande: string, techs: string[] | null = null) {
   const jour = String(iso).slice(0, 10);
   const [{ data: l1 }, { data: l7 }, { data: retenus }] = await Promise.all([
     sb.from("tableau").select("donnees").eq("id", LIGNE_MACHINES).maybeSingle(),
@@ -112,15 +134,17 @@ async function plageLibre(iso: string, heure: string, dureeMin: number, saufDema
   const tampon = (((l7?.donnees as any)?.rdv?.tampon) ?? 15) / 60;
   const t = enDec(heure), fin = t + dureeMin/60;
   const chevauche = (d: number, f: number) => !(fin + tampon <= d || t >= f + tampon);
+  const capacite = Array.isArray(techs) && techs.length ? techs.length : 1;
+  let chevauchants = 0;
   for (const m of machines) {
     if (!m || m.statut === "archive" || m.echeance !== jour || !m.heure) continue;
-    const d = enDec(m.heure); if (chevauche(d, d + (m.dureeEstimee||60)/60)) return false;
+    const d = enDec(m.heure); if (chevauche(d, d + (m.dureeEstimee||60)/60)) chevauchants++;
   }
   for (const r of (retenus || [])) {
     if (r.demande_id === saufDemande) continue;
-    const d = enDec(r.heure); if (chevauche(d, d + (r.duree_min||60)/60)) return false;
+    const d = enDec(r.heure); if (chevauche(d, d + (r.duree_min||60)/60)) chevauchants++;
   }
-  return true;
+  return chevauchants < capacite;
 }
 
 async function confirmer(dem: any, choix: number, smsId: number | null) {
@@ -135,66 +159,134 @@ async function confirmer(dem: any, choix: number, smsId: number | null) {
   const duree = Number(cr.duree_min || cr.duree) || dem.duree_min || 60;
   const expiree = cr.expire_le && new Date(cr.expire_le) < new Date();
 
-  if (!(await plageLibre(jour, heure, duree, dem.id))) {
-    await sb.from("creneaux_reserves").update({ statut: "libere", libere_le: new Date().toISOString(), motif: "plage prise entre-temps" })
-      .eq("demande_id", dem.id).eq("statut", "reserve");
-    await sb.from("demandes_service").update({
+  // v178 : la capacité par technicien est figée dans le créneau proposé (la ligne creneaux_reserves n'a pas cette colonne)
+  const proposee = (Array.isArray(dem.creneaux) ? dem.creneaux : []).find((c: any) => Number(c?.no) === choix);
+  const techs: string[] | null = Array.isArray(proposee?.techs) ? proposee.techs.map((x: any) => String(x ?? "").trim()).filter(Boolean) : null;
+
+  if (!(await plageLibre(jour, heure, duree, dem.id, techs))) {
+    // v178 : même garde que le verrou plus bas : si la demande n'est plus « creneaux_envoyes » (un doublon l'a déjà confirmée),
+    // on n'écrase surtout pas « confirmee » par « conflit ».
+    const { data: marquee, error: errConflit } = await sb.from("demandes_service").update({
       statut: "conflit", lu: false, choix,
       note_interne: `Le client a choisi le ${dateLisible(jour, heure)}, mais la plage n'etait plus libre${expiree ? " (reservation expiree)" : ""}. A replacer.`,
-    }).eq("id", dem.id);
+    }).eq("id", dem.id).eq("statut", "creneaux_envoyes").select("id");
+    if (!errConflit && !(marquee || []).length) {
+      console.log("confirmer: demande", dem.id, "déjà traitée (plage prise, doublon) : aucune réponse");
+      await marquerSms(smsId, "aucune_correspondance", dem.id);
+      return { msg: "" };
+    }
+    await sb.from("creneaux_reserves").update({ statut: "libere", libere_le: new Date().toISOString(), motif: "plage prise entre-temps" })
+      .eq("demande_id", dem.id).eq("statut", "reserve");
     await journal(dem.id, "conflit", { choix, iso: jour, heure, reservation_expiree: !!expiree });
     await marquerSms(smsId, "conflit", dem.id);
     return { msg: sansAccent(`${SHOP} : merci! Cette plage vient tout juste d'etre prise. On vous revient tres vite avec d'autres disponibilites.`) };
   }
 
-  const { data: l1 } = await sb.from("tableau").select("donnees").eq("id", LIGNE_MACHINES).maybeSingle();
-  const machines: any[] = Array.isArray(l1?.donnees) ? l1!.donnees : [];
-  const nomMachine = [dem.annee, dem.marque, dem.modele].filter(Boolean).join(" ").trim() || dem.type_machine || "Machine";
-  // v172 : les travaux = les services cochés par le client + sa description (avant : la description seule → bon vide)
-  let services: any = dem.services;
-  if (typeof services === "string") { try { services = JSON.parse(services); } catch { services = String(services).split(/[,;]/); } }
-  const travaux = [(Array.isArray(services) ? services : []).map((x: any) => String(x ?? "").trim()).filter(Boolean).join(" · "),
-                   String(dem.description || "").trim()].filter(Boolean).join("\n");
-  const bt = {
-    id: genId(), creeLe: new Date().toISOString(),
-    nom: nomMachine, client: dem.nom || "", tel: dem.tel || "", courriel: dem.courriel || "",
-    type: dem.type_machine || "", marque: dem.marque || "", modele: dem.modele || "", annee: dem.annee || "", reference: dem.serie || "",
-    travaux, statut: "avenir",
-    echeance: jour, heure, dureeEstimee: duree,
-    clientId: dem.client_id || "", origine: "demande-web", demandeId: dem.id,
-  };
-  machines.unshift(bt);
-  const { error } = await sb.from("tableau").upsert({ id: LIGNE_MACHINES, donnees: machines });
-  if (error) {
-    await sb.from("demandes_service").update({ statut: "conflit", lu: false, note_interne: "Echec d'ecriture du bon de travail : " + error.message }).eq("id", dem.id);
-    await journal(dem.id, "erreur", { etape: "ecriture bon de travail", message: error.message }, "systeme");
+  // v178 (A1-a) : VERROU ATOMIQUE. Un seul des webhooks concurrents (nouvel essai Twilio, deux « 1 » rapprochés) fait passer la
+  // demande de « creneaux_envoyes » à « confirmee » ; les autres obtiennent 0 ligne et s'arrêtent là, sans message ni 2e bon.
+  const { data: verrou, error: errVerrou } = await sb.from("demandes_service")
+    .update({ statut: "confirmee", choix, confirme_le: new Date().toISOString(), lu: false })
+    .eq("id", dem.id).eq("statut", "creneaux_envoyes").select("id");
+  if (errVerrou) {
+    console.log("confirmer: verrou impossible", errVerrou.message);
+    await journal(dem.id, "erreur", { etape: "verrou de confirmation", message: errVerrou.message }, "systeme");
     await marquerSms(smsId, "erreur", dem.id);
     return { msg: sansAccent(`${SHOP} : un probleme technique nous empeche de confirmer. Appelez-nous au ${TEL_SHOP}.`) };
   }
+  if (!(verrou || []).length) {
+    console.log("confirmer: demande", dem.id, "déjà confirmée par un autre traitement (doublon) : aucune réponse");
+    await marquerSms(smsId, "aucune_correspondance", dem.id);
+    return { msg: "" };
+  }
 
-  if (cr.id) await sb.from("creneaux_reserves").update({ statut: "choisi", motif: "choisi par le client" }).eq("id", cr.id);
-  await sb.from("creneaux_reserves")
-    .update({ statut: "libere", libere_le: new Date().toISOString(), motif: "non retenu par le client" })
-    .eq("demande_id", dem.id).eq("statut", "reserve");
-
-  await sb.from("demandes_service").update({ statut: "confirmee", choix, confirme_le: new Date().toISOString(), bt_id: bt.id, lu: false }).eq("id", dem.id);
-
-  let gabarit = "";
+  // v178 : tout ce qui suit est protégé. Exception AVANT l'écriture du bon → la demande revient à « creneaux_envoyes »
+  // (le client peut répondre de nouveau, aucun rendez-vous perdu en silence). Après l'écriture du bon, on ne rouvre jamais la demande.
+  let bonEcrit = false;
+  const bt: any = {};
   try {
-    const { data } = await sb.from("rappels_config").select("gabarit").eq("type", "confirmation").eq("actif", true).limit(1).maybeSingle();
-    gabarit = data?.gabarit || "";
-  } catch (_) {}
-  const vars: Record<string,string> = {
-    prenom: (dem.nom || "").trim().split(/\s+/)[0] || "", client: dem.nom || "",
-    date: dateLisible(jour, heure).replace(/\s\d{1,2}h\d{2}$/, ""), heure: String(heure).replace(":", " h "),
-    machine: nomMachine, shop: SHOP,
-  };
-  const msg = gabarit ? gabarit.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "")
-    : sansAccent(`${SHOP} : c'est confirme! Votre rendez-vous est le ${dateLisible(jour, heure)} pour votre ${nomMachine}. Au plaisir!`);
+    const { data: l1, error: errL1 } = await sb.from("tableau").select("donnees").eq("id", LIGNE_MACHINES).maybeSingle();
+    // v178 : une lecture en erreur ne doit JAMAIS finir par un upsert d'un tableau vide (la ligne 1 serait écrasée)
+    if (errL1) throw new Error("lecture de la ligne 1 impossible : " + errL1.message);
+    const machines: any[] = Array.isArray(l1?.donnees) ? l1!.donnees : [];
+    const nomMachine = [dem.annee, dem.marque, dem.modele].filter(Boolean).join(" ").trim() || dem.type_machine || "Machine";
+    // v172 : les travaux = les services cochés par le client + sa description (avant : la description seule → bon vide)
+    let services: any = dem.services;
+    if (typeof services === "string") { try { services = JSON.parse(services); } catch { services = String(services).split(/[,;]/); } }
+    const travaux = [(Array.isArray(services) ? services : []).map((x: any) => String(x ?? "").trim()).filter(Boolean).join(" · "),
+                     String(dem.description || "").trim()].filter(Boolean).join("\n");
+    Object.assign(bt, {
+      id: genId(), creeLe: new Date().toISOString(),
+      nom: nomMachine, client: dem.nom || "", tel: dem.tel || "", courriel: dem.courriel || "",
+      type: dem.type_machine || "", marque: dem.marque || "", modele: dem.modele || "", annee: dem.annee || "", reference: dem.serie || "",
+      travaux, statut: "avenir",
+      echeance: jour, heure, dureeEstimee: duree,
+      clientId: dem.client_id || "", origine: "demande-web", demandeId: dem.id,
+    });
+    machines.unshift(bt);
+    const { error } = await sb.from("tableau").upsert({ id: LIGNE_MACHINES, donnees: machines });
+    if (error) {
+      await sb.from("demandes_service").update({ statut: "conflit", lu: false, note_interne: "Echec d'ecriture du bon de travail : " + error.message }).eq("id", dem.id);
+      await journal(dem.id, "erreur", { etape: "ecriture bon de travail", message: error.message }, "systeme");
+      await marquerSms(smsId, "erreur", dem.id);
+      return { msg: sansAccent(`${SHOP} : un probleme technique nous empeche de confirmer. Appelez-nous au ${TEL_SHOP}.`) };
+    }
+    bonEcrit = true;
 
-  await journal(dem.id, "confirmee", { choix, iso: jour, heure, duree_min: duree, bt_id: bt.id, machine: nomMachine, confirmation_sms: msg });
-  await marquerSms(smsId, "confirme", dem.id);
-  return { msg };
+    if (cr.id) await sb.from("creneaux_reserves").update({ statut: "choisi", motif: "choisi par le client" }).eq("id", cr.id);
+    await sb.from("creneaux_reserves")
+      .update({ statut: "libere", libere_le: new Date().toISOString(), motif: "non retenu par le client" })
+      .eq("demande_id", dem.id).eq("statut", "reserve");
+
+    let gabarit = "";
+    try {
+      const { data } = await sb.from("rappels_config").select("gabarit").eq("type", "confirmation").eq("actif", true).limit(1).maybeSingle();
+      gabarit = data?.gabarit || "";
+    } catch (_) {}
+    const vars: Record<string,string> = {
+      prenom: (dem.nom || "").trim().split(/\s+/)[0] || "", client: dem.nom || "",
+      date: dateLisible(jour, heure).replace(/\s\d{1,2}h\d{2}$/, ""), heure: String(heure).replace(":", " h "),
+      machine: nomMachine, shop: SHOP, adresse: ADRESSE,
+    };
+    const msg = gabarit ? gabarit.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "")
+      : sansAccent(`${SHOP} : c'est confirme! Votre rendez-vous est le ${dateLisible(jour, heure)} pour votre ${nomMachine}. Adresse : ${ADRESSE}. Au plaisir!`);
+
+    // v178 (A1-b) : UN seul update final (chacun déclenche un événement temps réel côté poste) : le bon + l'heure de la confirmation.
+    // Le statut, le choix et confirme_le ont déjà été posés par le verrou.
+    const { error: errFinal } = await sb.from("demandes_service").update({ bt_id: bt.id, confirmation_envoyee_le: new Date().toISOString() }).eq("id", dem.id);
+    if (errFinal) {
+      console.log("confirmer: update final en erreur", errFinal.message);
+      await journal(dem.id, "erreur", { etape: "mise a jour finale de la demande", message: errFinal.message, bt_id: bt.id }, "systeme");
+    }
+
+    // v178 (A1-d) : trace de la confirmation. rappel_id reste NULL (jamais l'id d'une ligne de rappels_config : envoyer-rappels
+    // le prendrait pour « rappel déjà fait »). Canal « twiml » : le déclencheur comm_depuis_rappels ignore tout canal différent
+    // de « sms », donc pas de doublon avec noterReponse (la ligne 🤖 du fil). Une panne ici ne doit jamais bloquer la réponse au client.
+    try {
+      const { error: errTrace } = await sb.from("rappels_envoyes").insert({
+        bt_id: String(bt.id), rappel_id: null, type: "confirmation", canal: "twiml",
+        destinataire: tel164(dem.tel), client: dem.nom || "", message: msg, statut: "envoye",
+      });
+      if (errTrace) console.log("confirmation non tracée dans rappels_envoyes :", errTrace.message);
+    } catch (e) { console.log("confirmation non tracée dans rappels_envoyes", e); }
+
+    await journal(dem.id, "confirmee", { choix, iso: jour, heure, duree_min: duree, bt_id: bt.id, machine: nomMachine, confirmation_sms: msg });
+    await marquerSms(smsId, "confirme", dem.id);
+    return { msg };
+  } catch (e) {
+    const message = String((e as any)?.message || e);
+    console.log("confirmer: exception", message, bonEcrit ? "(après l'écriture du bon)" : "(avant l'écriture du bon)");
+    try {
+      if (!bonEcrit) {
+        await sb.from("demandes_service").update({ statut: "creneaux_envoyes", choix: dem.choix ?? null, confirme_le: dem.confirme_le ?? null })
+          .eq("id", dem.id).eq("statut", "confirmee").is("bt_id", null);
+      } else {
+        await sb.from("demandes_service").update({ bt_id: bt.id }).eq("id", dem.id).is("bt_id", null);   // le bon existe : on rattache, on ne rouvre pas
+      }
+    } catch (_) {}
+    await journal(dem.id, "erreur", { etape: bonEcrit ? "apres ecriture du bon" : "avant ecriture du bon (demande remise en attente)", message }, "systeme");
+    await marquerSms(smsId, "erreur", dem.id);
+    throw e;
+  }
 }
 
 async function demandesOuvertes(de: string) {
@@ -260,7 +352,7 @@ async function traiterMenu(etat: any, texte: string, chiffre: number, smsId: num
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
-  if (url.searchParams.has("diag")) return json({ twilio: { sid: !!TW_SID, token: !!TW_TOKEN, from: TW_FROM ?? null }, note: "Les plages viennent du tableau de bord; rien n'est choisi automatiquement. v172 : menu d'appel manqué actif, réponses automatiques notées dans Communications." });
+  if (url.searchParams.has("diag")) return json({ twilio: { sid: !!TW_SID, token: !!TW_TOKEN, from: TW_FROM ?? null }, note: "Les plages viennent du tableau de bord; rien n'est choisi automatiquement. v172 : menu d'appel manqué actif, réponses automatiques notées dans Communications. v178 : confirmation par texto verrouillée et tracée, adresse, capacité par technicien." });
   if (req.method !== "POST") return twiml();
 
   let de = "", corps = "", sid = "";

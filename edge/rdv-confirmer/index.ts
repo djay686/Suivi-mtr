@@ -1,4 +1,5 @@
 // Copie locale récupérée de Supabase le 2026-10-06 (version 5, verify_jwt = false) — ne pas redéployer sans relire
+// v178 : seule modification = la capacité par technicien dans plageLibre (même règle que sms-entrant) ; le reste est la version 5.
 // ============================================================
 // Fonction Edge : rdv-confirmer  (MTR Performance, v125)
 // Page publique ouverte par le client quand il clique « Réserver ce moment »
@@ -53,7 +54,11 @@ function page(titre: string, message: string, couleur: string, detail = "") {
 </div></body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
 
-async function plageLibre(iso: string, heure: string, dureeMin: number, saufDemande: string) {
+// v178 : « techs » = noms de TOUS les techniciens capables, figés à la proposition (demandes_service.creneaux[].techs).
+// Absent / vide (créneau proposé avant la v178) → capacité 1 (comportement d'avant) ; sinon la plage reste libre tant que le
+// nombre d'occupants qui chevauchent (bons non archivés du jour avec heure + créneaux retenus des AUTRES demandes) est inférieur
+// au nombre de techniciens. Même règle que sms-entrant.
+async function plageLibre(iso: string, heure: string, dureeMin: number, saufDemande: string, techs: string[] | null = null) {
   const jour = String(iso).slice(0, 10);
   const [{ data: l1 }, { data: l7 }, { data: retenus }] = await Promise.all([
     sb.from("tableau").select("donnees").eq("id", LIGNE_MACHINES).maybeSingle(),
@@ -64,15 +69,17 @@ async function plageLibre(iso: string, heure: string, dureeMin: number, saufDema
   const tampon = (((l7?.donnees as any)?.rdv?.tampon) ?? 15) / 60;
   const t = enDec(heure), fin = t + dureeMin / 60;
   const chevauche = (d: number, f: number) => !(fin + tampon <= d || t >= f + tampon);
+  const capacite = Array.isArray(techs) && techs.length ? techs.length : 1;
+  let chevauchants = 0;
   for (const m of machines) {
     if (!m || m.statut === "archive" || m.echeance !== jour || !m.heure) continue;
-    const d = enDec(m.heure); if (chevauche(d, d + (m.dureeEstimee || 60) / 60)) return false;
+    const d = enDec(m.heure); if (chevauche(d, d + (m.dureeEstimee || 60) / 60)) chevauchants++;
   }
   for (const r of (retenus || [])) {
     if (r.demande_id === saufDemande) continue;
-    const d = enDec(r.heure); if (chevauche(d, d + (r.duree_min || 60) / 60)) return false;
+    const d = enDec(r.heure); if (chevauche(d, d + (r.duree_min || 60) / 60)) chevauchants++;
   }
-  return true;
+  return chevauchants < capacite;
 }
 
 async function journal(id: string, evenement: string, detail: unknown) {
@@ -104,8 +111,10 @@ Deno.serve(async (req) => {
 
   const jour = String(cr.iso).slice(0, 10), heure = cr.heure;
   const duree = Number(cr.duree) || dem.duree_min || 60;
+  // v178 : capacité par technicien figée dans le créneau proposé (absente pour les créneaux d'avant la v178 → capacité 1)
+  const techs: string[] | null = Array.isArray(cr.techs) ? cr.techs.map((x: any) => String(x ?? "").trim()).filter(Boolean) : null;
 
-  if (!(await plageLibre(jour, heure, duree, dem.id))) {
+  if (!(await plageLibre(jour, heure, duree, dem.id, techs))) {
     await sb.from("creneaux_reserves").update({ statut: "libere", libere_le: new Date().toISOString(), motif: "plage prise entre-temps" })
       .eq("demande_id", dem.id).eq("statut", "reserve");
     await sb.from("demandes_service").update({ statut: "conflit", lu: false, choix,
