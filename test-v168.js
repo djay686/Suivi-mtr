@@ -1,4 +1,7 @@
-// v168 — L'inventaire suit la facturation finale (QuickBooks, « Facturé », 🎁 cadeau) + 🎁 bon fermé en cadeau (payé comptant).
+// v168 — L'inventaire suit la facturation finale (QuickBooks, « Facturé »).
+// v178 : le « 🎁 cadeau / payé comptant » est retiré de l'application. Les actions qui passaient par la fenêtre cadeau passent
+// maintenant par « → Facturé » (deplacer(id, "prete")) puis « ✓ Livrée » (archiver) ; mêmes fixtures bt7 / bt8 / bt9, mêmes soldes de stock.
+// La Rentabilité garde sa bascule 🎁 « offert » (rentabilite.cadeau) : section 11.
 // NODE_PATH=… node test-v168.js ./index.html
 const { JSDOM } = require("jsdom");
 const fs = require("fs");
@@ -77,10 +80,10 @@ const prod = (id, doc, action) => (c) => c.action === "statut" ? { status: 200, 
     { id: "bt5", numeroBT: "BT-095", nom: "Vieille Spark", client: "Avant v168", statut: "prete", invSortieFaite: true, pieces: [P("X9", "Bougie", 1)] },
     { id: "bt6", numeroBT: "BT-096", nom: "Vieux Ski-Doo", client: "Facturé avant v168", statut: "prete",
       facturation: { lignes: [{ type: "art", num: "295100522", desc: "Filtre", qte: 2, prix: 24.99 }], confirmeLe: iso(10, 0), sousTotal: 49.98 }, pieces: [P("295100522", "Filtre", 3)] },
-    { id: "bt7", numeroBT: "BT-107", nom: "Can-Am Renegade", client: "Payé comptant", statut: "afacturer",
+    { id: "bt7", numeroBT: "BT-107", nom: "Can-Am Renegade", client: "Fermé en Facturé", statut: "afacturer",
       chrono: [{ tech: "Gwendal", debut: iso(12, 0), fin: iso(13, 0), pauses: [] }],
       pieces: [P("A1", "Anode", 1, { utilise: true, prixVente: 15 }), P("C1", "Courroie", 1, { utilise: true, prixVente: 80 })] },
-    { id: "bt8", numeroBT: "BT-108", nom: "Polaris RZR", client: "Cadeau livré", statut: "afacturer", pieces: [P("WCFQTC", "Huile XPS 4T", 2, { utilise: true, prixVente: 23.29 })] },
+    { id: "bt8", numeroBT: "BT-108", nom: "Polaris RZR", client: "Facturé puis livré", statut: "afacturer", pieces: [P("WCFQTC", "Huile XPS 4T", 2, { utilise: true, prixVente: 23.29 })] },
     { id: "bt9", numeroBT: "BT-109", nom: "Kawasaki Teryx", client: "Déjà facturé", statut: "afacturer",
       facturation: { qbo: { id: "1600", doc: "1600", realm: "R1", env: "production", le: iso(9, 0) } }, pieces: [] },
     { id: "bt10", numeroBT: "BT-110", nom: "Honda Pioneer", client: "En réparation", statut: "reparation", pieces: [] },
@@ -89,14 +92,13 @@ const prod = (id, doc, action) => (c) => c.action === "statut" ? { status: 200, 
   w.__set("qboEtat", { connecte: true, company: "Groupe MTR", realm: "R1", env: "production", config: {} });
   w.afficher();
 
-  // ── 1. 🎁 sur les cartes : en haut à droite, admin, « Prêt à facturer » seulement ──
+  // ── 1. Plus de 🎁 sur les cartes ni de fenêtre cadeau ──
   const c7 = carte("Can-Am Renegade");
-  ok(c7 && c7.querySelector(".carte-haut .btn-cadeau") && c7.querySelector(".carte-haut").lastElementChild.classList.contains("btn-cadeau"), "carte « Prêt à facturer » : 🎁 en haut à droite (dernier élément de l'en-tête)");
-  ok(!carte("Honda Pioneer").querySelector(".btn-cadeau"), "pas de 🎁 sur un bon en réparation");
+  ok(c7 && /🧾 Facturer/.test(c7.textContent) && !c7.querySelector(".btn-cadeau") && !c7.querySelector(".cadeau-discret") && !/🎁/.test(c7.textContent), "carte « Prêt à facturer » : le bouton 🧾 Facturer reste, plus aucun 🎁");
+  ok(!carte("Honda Pioneer").querySelector(".btn-cadeau") && !$$("article.carte .btn-cadeau, article.carte .badge-cadeau").length, "aucune carte (réparation, prêt à facturer, admin) ne porte 🎁 ni badge cadeau");
+  ok(w.document.getElementById("cadeau-pop") === null && typeof w.factCadeau === "undefined" && typeof w.cadeauConfirmer === "undefined" && typeof w.cadeauFermer === "undefined", "#cadeau-pop est absent ; factCadeau, cadeauConfirmer et cadeauFermer sont indéfinis");
   w.__set("sessionCourante", { nom: "Gwendal", quand: new Date().toISOString() }); w.afficher();
-  ok(!$$("article.carte .btn-cadeau").length, "technicien : aucun 🎁");
-  w.factCadeau("bt7");
-  ok(!$("#cadeau-pop").classList.contains("ouvert"), "technicien : la fenêtre cadeau refuse de s'ouvrir");
+  ok(!$$("article.carte .btn-cadeau").length && !$$("article.carte").some(a => /🎁/.test(a.textContent)), "technicien : aucun 🎁");
   w.__set("sessionCourante", { nom: "Jason", quand: new Date().toISOString() }); w.afficher();
 
   // ── 2. Fenêtre de facturation : encadré 📦 Inventaire ──
@@ -191,60 +193,63 @@ const prod = (id, doc, action) => (c) => c.action === "statut" ? { status: 200, 
   w.deplacer("bt11", "prete");
   ok(qte("C1") === 3 && mouv().filter(x => x.ref === "BT-097").length === 1, "refacturé : aucune 2e sortie de la courroie");
 
-  // ── 8. 🎁 Cadeau depuis la carte : fermé dans « Facturé », sans QuickBooks ──
+  // ── 8. Bon sans facturation enregistrée (ancien chemin 🎁) : « → Facturé » puis « ✓ Livrée » ──
   appelsQbo.length = 0;
-  carte("Can-Am Renegade").querySelector(".btn-cadeau").click();
-  ok($("#cadeau-pop").classList.contains("ouvert") && /BT-107/.test($("#cadeau-sous").textContent), "🎁 : la fenêtre « Fermer le bon en cadeau » s'ouvre sur le BT-107");
-  const cc = $("#cadeau-corps").textContent.replace(/\s+/g, " ");
-  ok(/aucune facture QuickBooks/.test(cc) && /190,00 \$ avant taxes/.test(cc) && /A1.*sort 1/.test(cc) && /C1.*sort 1/.test(cc), "on voit : pas de facture QuickBooks, valeur 190 $ (1 h + anode + courroie), ce qui sort du stock");
-  $("#cadeau-ok").click();
+  w.deplacer("bt7", "prete");
   const m7 = bt("bt7");
-  ok(m7.statut === "prete" && m7.cadeau && m7.cadeau.par === "Jason" && m7.cadeau.montant === 190 && !$("#cadeau-pop").classList.contains("ouvert"), "« 🎁 Fermer le bon » : dans « Facturé », marqué cadeau (Jason, 190 $)");
-  ok(qte("A1") === 3 && qte("C1") === 2 && mouv().some(x => /BT-107 · 🎁 cadeau/.test(x.ref)), "cadeau : anode et courroie sortent du stock (réf. « BT-107 · 🎁 cadeau »)");
-  ok(!appelsQbo.length && !m7.facturation?.qbo && !m7.factureLe, "cadeau : rien envoyé à QuickBooks, aucune facture");
+  ok(m7.statut === "prete" && !("cadeau" in m7) && m7.invSortieSource === "suggestion", "« → Facturé » : le BT-107 passe dans « Facturé », sorti d'après la suggestion, sans marque cadeau");
+  ok(qte("A1") === 3 && qte("C1") === 2 && mouv().filter(x => x.ref === "BT-107").length === 2, "anode et courroie sortent du stock une seule fois (réf. « BT-107 », sans 🎁)");
+  ok(!mouv().some(x => /🎁|cadeau/i.test(x.ref)) && !appelsQbo.length && !m7.facturation?.qbo && !m7.factureLe, "aucun mouvement ne porte 🎁 ; rien envoyé à QuickBooks, aucune facture");
   w.afficher();
   const c7b = carte("Can-Am Renegade");
-  ok(/🎁 Cadeau · payé comptant · 190,00 \$/.test(c7b.textContent) && !c7b.querySelector(".btn-cadeau") && !/🧾 Facturer/.test(c7b.textContent), "carte : badge « 🎁 Cadeau · payé comptant · 190 $ », plus de 🎁 ni de 🧾");
-  ok(toasts().some(t => /BT-107 fermé en cadeau — dans « Facturé »/.test(t)), "toast « 🎁 BT-107 fermé en cadeau »");
-  // Revenir en arrière : plus un cadeau ; la réservation reprend seulement l'excédent
+  ok(!/payé comptant|🎁/i.test(c7b.textContent) && !c7b.querySelector(".btn-cadeau"), "carte du bon fermé : ni badge « payé comptant » ni 🎁");
+  ok(toasts().some(t => /1 article\(s\) sorti\(s\) de l'inventaire|2 article\(s\) sorti\(s\) de l'inventaire/.test(t)), "toast « 📦 article(s) sorti(s) de l'inventaire (BT-107 facturé) »");
+  // Revenir en arrière : la réservation reprend seulement l'excédent
   w.deplacer("bt7", "afacturer");
-  ok(!bt("bt7").cadeau && bt("bt7").statut === "afacturer" && qte("A1") === 3, "ramené dans « Prêt à facturer » : plus un cadeau, le stock ne bouge pas");
+  ok(bt("bt7").statut === "afacturer" && qte("A1") === 3, "ramené dans « Prêt à facturer » : le stock ne bouge pas");
   ok(w.invReserve("A1") === 0, "réservation : rien de plus que ce qui est déjà sorti");
   bt("bt7").pieces[0].qte = "2";
   ok(w.invReserve("A1") === 1, "une 2e anode ajoutée au bon : 1 réservée (l'excédent)");
   w.deplacer("bt7", "prete");
   ok(qte("A1") === 2 && bt("bt7").invSorties.A1.qte === 2, "refacturé : seulement l'anode de plus sort (3 → 2)");
+  w.archiver("bt7");
+  ok(bt("bt7").statut === "archive" && qte("A1") === 2 && qte("C1") === 2, "« ✓ Livrée » : aux archives, aucune 2e sortie");
 
-  // ── 9. 🎁 depuis la fenêtre de facturation : lignes de la fenêtre, « Fermer et livrer » ──
+  // ── 9. Fenêtre de facturation sans 🎁 ; lignes enregistrées puis « → Facturé » et « ✓ Livrée » ──
   w.factOuvrir("bt8");
-  ok($(".fact-h3 .btn-cadeau") && $(".fact-h3").lastElementChild.classList.contains("btn-cadeau"), "fenêtre de facturation : 🎁 en haut à droite du titre");
+  ok($(".fact-h3") && !$(".fact-h3 button") && $(".fact-h3").children.length === 1 && /🧾 Facturer/.test($(".fact-h3").textContent) && !/🎁/.test($("#fact-pop").textContent), "fenêtre de facturation : le titre est « 🧾 Facturer » seul, sans bouton 🎁");
   w.factChamp(iDe("Huile XPS"), "qte", "1");
-  $(".fact-h3 .btn-cadeau").click();
-  ok(/23,29 \$ avant taxes/.test($("#cadeau-corps").textContent) && /WCFQTC.*sort 1/.test($("#cadeau-corps").textContent.replace(/\s+/g, " ")), "la fenêtre cadeau reprend les lignes de la facturation (1 huile, pas 2)");
-  $("#cadeau-livrer").click();
+  w.factEnregistrer(true);
+  w.factFermer();
+  w.deplacer("bt8", "prete");
+  w.archiver("bt8");
   const m8 = bt("bt8");
-  ok(m8.statut === "archive" && m8.livreLe && m8.cadeau && qte("WCFQTC") === 6 && !$("#fact-pop").classList.contains("ouvert"), "« 🎁 Fermer et livrer » : aux archives, 1 huile sortie (7 → 6), fenêtre de facturation fermée");
-  ok(m8.facturation && m8.facturation.lignes.length === 1 && m8.facturation.lignes[0].qte === 1, "la facturation de la fenêtre est gardée sur le bon");
+  ok(m8.statut === "archive" && m8.livreLe && !("cadeau" in m8) && qte("WCFQTC") === 6 && !$("#fact-pop").classList.contains("ouvert"), "« → Facturé » puis « ✓ Livrée » : aux archives, 1 huile sortie (7 → 6), fenêtre de facturation fermée");
+  ok(m8.facturation && m8.facturation.lignes.length === 1 && m8.facturation.lignes[0].qte === 1 && mouv().filter(x => x.ref === "BT-108").length === 1, "la facturation de la fenêtre est gardée sur le bon ; un seul mouvement « BT-108 »");
 
-  // ── 10. Bon déjà facturé dans QuickBooks : avertissement ; annuler ne change rien ──
-  w.factCadeau("bt9");
-  ok(/déjà la facture QuickBooks n° 1600/.test($("#cadeau-corps").textContent) && /annule-la dans QuickBooks/.test($("#cadeau-corps").textContent), "bon déjà facturé : « le cadeau n'annule pas la facture 1600 »");
-  [...$$("#cadeau-pop button")].find(b => b.textContent === "Annuler").click();
-  ok(!$("#cadeau-pop").classList.contains("ouvert") && !bt("bt9").cadeau && bt("bt9").statut === "afacturer", "Annuler : rien ne change");
+  // ── 10. Bon déjà facturé dans QuickBooks : « → Facturé » ne rappelle pas QuickBooks ──
+  const nMouvAvant = mouv().length;
+  w.deplacer("bt9", "prete");
+  ok(bt("bt9").statut === "prete" && !("cadeau" in bt("bt9")) && !appelsQbo.length && bt("bt9").facturation.qbo.id === "1600" && mouv().length === nMouvAvant, "bon déjà facturé (n° 1600) : passe dans « Facturé », aucun appel QuickBooks, facture conservée, pas de mouvement");
 
-  // ── 11. Rentabilité : le cadeau suit ──
+  // ── 11. Rentabilité : garde sa bascule 🎁 « offert » (rentabilite.cadeau), sans notion de paiement ──
   w.ouvrirEditRent("bt8");
-  ok($("#btn-cadeau").classList.contains("actif"), "Rentabilité du BT-108 : 🎁 déjà actif");
+  ok(!$("#rent-btn-offert").classList.contains("actif") && w.__get("estCadeauRent")(bt("bt8")) === false, "Rentabilité du BT-108 : 🎁 « offert » pas actif tant qu'il n'a pas été choisi");
+  w.toggleCadeauRent();
+  ok($("#rent-btn-offert").classList.contains("actif"), "la bascule 🎁 « offert » de la Rentabilité fonctionne toujours");
+  w.enregistrerRentApp();
+  ok(bt("bt8").rentabilite && bt("bt8").rentabilite.cadeau === true && w.__get("estCadeauRent")(bt("bt8")) === true, "enregistrée : rentabilite.cadeau = true");
   w.rendreRecapCadeaux();
-  ok(/BT-108/.test($("#cad-liste").textContent) && /23\.29/.test($("#cad-liste").textContent.replace(",", ".")), "récap des cadeaux : BT-108 avec sa valeur (23,29 $) même sans rentabilité remplie");
+  ok(/BT-108/.test($("#cad-liste").textContent) && $("#cad-liste").textContent.replace(/\s/g, "").includes(w.__get("fmtArgentApp")(bt("bt8").rentabilite.revenuPotentiel).replace(/\s/g, "")), "récap « Cadeaux offerts » : BT-108 avec son revenu potentiel (rentabilité)");
   w.rendreListeRent();
   ok(!!$$("#rent-liste .rent-ligne-bt").find(l => /BT-108/.test(l.textContent) && l.querySelector(".rl-cadeau")), "liste de rentabilité : 🎁 sur le BT-108");
+  ok(w.__get("estCadeauRent")({ cadeau: { le: "2026-10-01T10:00:00Z", montant: 50 }, statut: "prete" }) === false && w.__get("valeurCadeau")({ cadeau: { montant: 50 } }) === 0, "un reste de m.cadeau (ancien bon) ne compte plus comme offert : seule rentabilite.cadeau compte");
 
-  // ── 12. Échappement et erreurs ──
+  // ── 12. Échappement ──
   bt("bt10").statut = "afacturer"; bt("bt10").pieces = [P("<b>x</b>", "<img src=x onerror=alert(1)>", 1, { utilise: true, prixVente: 1 })];
-  w.factCadeau("bt10");
-  ok(!$("#cadeau-corps img") && /<img src=x/.test($("#cadeau-corps").textContent), "texte des pièces affiché comme texte dans la fenêtre cadeau");
-  w.cadeauFermer();
+  w.factOuvrir("bt10");
+  ok(!$("#fact-inv img") && !$("#fact-pop img[src='x']") && /<img src=x/.test($("#fact-inv").textContent + $("#fact-pop").textContent) && !alertes.length, "texte des pièces affiché comme texte dans la fenêtre de facturation");
+  w.factFermer();
  } catch (e) { ok(false, "exception : " + (e && e.stack || e)); }
  ok(erreurs.length === 0, "aucune erreur JavaScript (" + erreurs.length + ")" + (erreurs.length ? " : " + erreurs.slice(0, 3).join(" | ") : ""));
  process.exit();

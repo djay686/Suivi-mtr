@@ -2660,7 +2660,7 @@ function basculerTheme() {
         </div>
         <div id="rent-edit-vue" style="display:none">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px">
-            <h2 style="margin:0"><span id="rent-edit-titre">Rentabilité</span><span class="cadeau-discret" id="btn-cadeau" onclick="toggleCadeauRent()" title="Cadeau (offert)">🎁</span><span class="cadeau-discret" id="btn-comeback" onclick="toggleComebackRent()" title="Comeback / reprise (non facturé)">🔄</span></h2>
+            <h2 style="margin:0"><span id="rent-edit-titre">Rentabilité</span><span class="cadeau-discret" id="rent-btn-offert" onclick="toggleCadeauRent()" title="Cadeau (offert)">🎁</span><span class="cadeau-discret" id="btn-comeback" onclick="toggleComebackRent()" title="Comeback / reprise (non facturé)">🔄</span></h2>
             <button class="btn-oeil" onclick="toggleMasqueRent()">👁 Afficher</button>
           </div>
           <div id="rent-edit-sous" style="font-size:13px;color:var(--sourdine); margin-bottom:8px"></div>
@@ -3042,13 +3042,9 @@ function basculerTheme() {
   .btn-facturer { color:#fff !important; background:var(--c-afact) !important; border-color:var(--c-afact) !important; font-weight:800 !important; }
   .btn-facturer:hover { filter:brightness(1.08); }
   .badge-facture { background:var(--f-prete); color:var(--c-prete); font-weight:800; }
-  /* v168 — 🎁 cadeau (payé comptant, pas de facture QuickBooks) et 📦 inventaire de la facturation */
-  .btn-cadeau { border:none; background:none; font-size:17px; line-height:1; padding:2px 4px; font-family:inherit; flex:0 0 auto; }
+  /* v168 — 📦 inventaire de la facturation */
   .carte-haut .ref { margin-left:auto; }
-  .carte-haut .btn-cadeau { margin-left:0; align-self:flex-start; }
   .fact-h3 { display:flex; align-items:center; gap:8px; }
-  .fact-h3 .btn-cadeau { margin-left:auto; }
-  .badge-cadeau { background:var(--f-attente); color:var(--c-attente); font-weight:800; }
   .fact-inv { border:1px solid var(--bordure); background:var(--surface-2); border-radius:10px; padding:8px 12px; font-size:12.5px; margin-top:12px; line-height:1.55; }
   .fact-inv:empty { display:none; }
   .fact-inv .fi-t { font-weight:800; color:var(--encre); margin-bottom:2px; }
@@ -3057,9 +3053,6 @@ function basculerTheme() {
   .fact-inv .fi-l.alerte { color:var(--c-attente); font-weight:700; }
   .fact-inv .fi-ok { color:var(--c-prete); font-weight:700; }
   .fact-inv .fi-neg { color:var(--danger); }
-  .cadeau-boite { max-width:560px; }
-  .cadeau-val { font-size:14px; margin:0 0 4px; }
-  .cadeau-actions { flex-wrap:wrap; }
   @media (max-width: 760px) {
     .fact-table thead { display:none; }
     .fact-table, .fact-table tbody { display:block; width:100%; }
@@ -4641,7 +4634,7 @@ function basculerTheme() {
     <!-- ─────────── VENTES / RENTABILITÉ ─────────── -->
     <div class="so-vue" id="inv-vue-ventes">
       <div class="so-note">
-        Une vente est comptée quand le bon de travail est <strong>facturé</strong> (facture QuickBooks, « Facturé » ou 🎁 cadeau),
+        Une vente est comptée quand le bon de travail est <strong>facturé</strong> (facture QuickBooks ou « Facturé »),
         d'après les lignes finales de la facturation. Avant, la pièce est seulement réservée. Une facture corrigée ajuste la vente et le stock.
       </div>
       <div class="inv-barre">
@@ -4786,10 +4779,20 @@ function basculerTheme() {
 <!-- v158 — Pop-up : facturation d'un bon de travail (soumission vs BT réel → QuickBooks) -->
 <div class="so-pop" id="fact-pop">
   <div class="so-pop-boite fact-boite">
-    <h3 class="fact-h3"><span id="fact-titre">🧾 Facturer</span><button type="button" class="btn-cadeau cadeau-discret" onclick="factCadeau(factBtId)" title="🎁 Cadeau : payé comptant, pas de facture QuickBooks — ferme le bon">🎁</button></h3>
+    <h3 class="fact-h3"><span id="fact-titre">🧾 Facturer</span></h3>
     <div class="fact-entete" id="fact-entete"></div>
     <div class="fact-resume" id="fact-resume"></div>
     <div id="fact-avis"></div>
+    <!-- v178-FAC — 📝 Notes d'atelier (lecture + ajout) : internes, elles ne partent jamais dans la facture. Le champ est STATIQUE (factRendre ne le reconstruit pas). -->
+    <details id="fact-notes" class="fact-notes" open>
+      <summary><span id="fact-notes-titre">📝 Notes d'atelier (0)</span><span class="fact-notes-interne">🔒 Interne</span></summary>
+      <ul id="fact-notes-liste" class="fact-notes-liste"></ul>
+      <div class="fact-notes-saisie">
+        <input id="fact-note-champ" class="champ" type="text" autocomplete="off" placeholder="Ajouter une note d'atelier…"
+               onkeydown="if(event.key==='Enter'&&!event.isComposing){event.preventDefault();factNoteAjouter();}">
+        <button type="button" class="btn-secondaire" onclick="factNoteAjouter()">＋ Ajouter</button>
+      </div>
+    </details>
     <div class="fact-modes" id="fact-modes">
       <span class="et">Point de départ :</span>
       <button type="button" class="fact-mode" data-mode="suggestion" onclick="factMode('suggestion')" title="Soumission telle quelle + pièces ajoutées et cochées « utilisées » au BT">✨ Suggestion</button>
@@ -4821,20 +4824,6 @@ function basculerTheme() {
       <button type="button" class="btn-secondaire" onclick="factCSV()" title="Fichier à importer dans QuickBooks : Paramètres → Importer des données → Factures">📄 CSV</button>
       <button type="button" class="btn-secondaire" id="fact-btn-sauver" onclick="factEnregistrer()">💾 Enregistrer</button>
       <button type="button" class="btn-principal" id="fact-btn-qbo" onclick="factQuickBooks(this)">📗 Facturer avec QuickBooks</button>
-    </div>
-  </div>
-</div>
-
-<!-- v168 — 🎁 Cadeau : payé comptant, pas de facture QuickBooks -->
-<div class="so-pop" id="cadeau-pop" onclick="if(event.target===this)cadeauFermer()">
-  <div class="so-pop-boite cadeau-boite">
-    <h3>🎁 Fermer le bon en cadeau</h3>
-    <div class="so-mini" id="cadeau-sous" style="display:block;margin:-4px 0 10px"></div>
-    <div id="cadeau-corps"></div>
-    <div class="so-actions cadeau-actions">
-      <button type="button" class="btn-secondaire" onclick="cadeauFermer()">Annuler</button>
-      <button type="button" class="btn-secondaire" id="cadeau-livrer" onclick="cadeauConfirmer(true)" title="La machine est déjà partie : le bon va aux archives">🎁 Fermer et livrer</button>
-      <button type="button" class="btn-principal" id="cadeau-ok" onclick="cadeauConfirmer(false)" title="La machine attend le client : le bon va dans « Facturé »">🎁 Fermer le bon</button>
     </div>
   </div>
 </div>
@@ -5411,6 +5400,7 @@ function rafraichirVues() {
   } catch (_) {}
   try { if (typeof ordreRafraichir === "function") ordreRafraichir(); } catch (_) {}   // v164 : ordre de travail
   //@@v178-A4 rafraichir
+  try { if (factBtId) factNotesRendre(); } catch (_) {}   // v178-FAC : la liste des notes d'atelier suit (temps réel, autre poste)
   //@@v178-A9 rafraichir
   //@@v178-A12 rafraichir
 }
@@ -5431,12 +5421,40 @@ function jsonStable(x) {
 }
 function fusionnerAjoutsServeur(serveur) {
   if (!Array.isArray(serveur) || !serveur.length) return [];
+  try { purgerCadeaux(serveur); } catch (_) {}   // v178-FAC : la donnée reçue du serveur est purgée avant la fusion
   const ici = new Set(machines.map(m => m && m.id));
   const ajouts = serveur.filter(m => m && m.id && !ici.has(m.id) && !machinesRetirees.has(m.id));
   if (ajouts.length) machines = ajouts.concat(machines);   // en tête, là où le serveur les place
   return ajouts;
 }
 //@@v178-FAC purge
+// v178-FAC-PURGE-DEBUT — migration idempotente : retire les traces de l'ancien « cadeau » (bons et journal d'inventaire).
+// Seul endroit de l'app qui nomme encore ce mot. Ne touche JAMAIS rentabilite, statut, livreLe, chrono, pieces, photos, invSorties.
+function purgerCadeaux(liste) {
+  let n = 0;
+  if (!Array.isArray(liste)) return 0;
+  liste.forEach(m => {
+    if (!m || typeof m !== "object") return;
+    let touche = false;
+    if (Object.prototype.hasOwnProperty.call(m, "cadeau")) { delete m.cadeau; touche = true; }
+    if (m.invSortieSource === "cadeau") { delete m.invSortieSource; touche = true; }
+    if (touche) n++;
+  });
+  return n;
+}
+function purgerCadeauxMouv(liste) {
+  const suffixe = " · 🎁 cadeau";
+  if (liste === undefined) liste = invMouv;
+  let n = 0;
+  if (!Array.isArray(liste)) return 0;
+  liste.forEach(x => {
+    if (!x || typeof x.ref !== "string" || x.ref.indexOf(suffixe) < 0) return;
+    x.ref = x.ref.split(suffixe).join("");
+    n++;
+  });
+  return n;
+}
+// v178-FAC-PURGE-FIN
 // Supprimer un bon (toutes les suppressions passent ici)
 function retirerMachine(id) {
   const m = machines.find(x => x && x.id === id);
@@ -5448,6 +5466,7 @@ function retirerMachine(id) {
 }
 // La liste du serveur remplace celle de ce poste (temps réel ou relecture)
 function appliquerLigne1(donnees) {
+  try { purgerCadeaux(donnees); } catch (_) {}   // v178-FAC
   machines = donnees;
   localStorage.setItem(CLE, JSON.stringify(machines));
   rafraichirVues();     // tableau, calendrier et écran mural d'un coup
@@ -5462,6 +5481,7 @@ async function relireMachines() {
     const { data, error } = await sb.from("tableau").select("donnees").eq("id", LIGNE_ID).maybeSingle();
     if (error || !data || !Array.isArray(data.donnees) || !data.donnees.length || ecritureL1) return;
     noterLigneLue(LIGNE_ID, data.donnees);
+    try { purgerCadeaux(data.donnees); } catch (_) {}   // v178-FAC : AVANT la comparaison, sinon appliquerLigne1 reviendrait à chaque focus
     if (jsonStable(data.donnees) !== jsonStable(machines)) appliquerLigne1(data.donnees);
   } catch (_) {} finally { relireMachines.enCours = false; }
 }
@@ -5478,6 +5498,7 @@ function relireAuReveil() {
 }
 
 async function sauvegarder() {
+  try { purgerCadeaux(machines); } catch (_) {}   // v178-FAC : aucune trace de l'ancien cadeau, ni dans le secours local ni au serveur
   localStorage.setItem(CLE, JSON.stringify(machines)); // secours local immédiat
   rafraichirVues();
   ecrireAuto();
@@ -5490,6 +5511,7 @@ async function sauvegarder() {
       const { data: srv, error: eL } = await sb.from("tableau").select("donnees").eq("id", LIGNE_ID).maybeSingle();
       if (!eL && srv && fusionnerAjoutsServeur(srv.donnees).length) { localStorage.setItem(CLE, JSON.stringify(machines)); rafraichirVues(); }
     } catch (_) {}
+    try { purgerCadeaux(machines); } catch (_) {}   // v178-FAC : après la fusion avec le serveur
     numeroterManquants();   // v170 : chaque bon a son n° dès sa création (rendez-vous compris, bons créés par le serveur aussi)
     const { error } = await sb.from("tableau").upsert({ id: LIGNE_ID, donnees: donneesPlates(machines) });
     if (error) throw error;
@@ -9749,7 +9771,7 @@ function rendreListeRent() {
   }
   zone.innerHTML = liste.map(m => {
     const st = statutRent(m);
-    const cadeau = estCadeauRent(m);   // v168 : fermé en 🎁 au tableau
+    const cadeau = estCadeauRent(m);   // 🎁 offert (bascule de la Rentabilité)
     const profit = m.rentabilite ? fmtArgentApp(m.rentabilite.profit) : "—";
     const marge = (m.rentabilite && !cadeau) ? (m.rentabilite.marge.toFixed(1) + " %") : "";
     return `<div class="rent-ligne-bt" onclick="ouvrirEditRent('${m.id}')">
@@ -9805,20 +9827,19 @@ function rendreRecap() {
     </div>`).join("");
 }
 // ── Récap des cadeaux offerts ──
-// v168 : un bon fermé en 🎁 au tableau compte aussi, tant que sa rentabilité n'est pas remplie (valeur = sa facturation)
-// (une rentabilité enregistrée APRÈS la fermeture en cadeau a le dernier mot)
-const estCadeauRent = (m) => { const r = m.rentabilite; return !!(r && r.cadeau) || !!(m.cadeau && !(r && r.calculeLe && r.calculeLe > m.cadeau.le)); };
+// v178 : seule la bascule 🎁 « offert » de la Rentabilité (revenu à 0) compte ; le tableau ne ferme plus de bon en cadeau
+const estCadeauRent = (m) => !!(m.rentabilite && m.rentabilite.cadeau);
 const rentCadeauRemplie = (m) => !!(m.rentabilite && m.rentabilite.cadeau);
-const dateCadeau = (m) => rentCadeauRemplie(m) ? dateComptaRent(m) : String((m.cadeau && m.cadeau.le) || "").slice(0, 10);
-const valeurCadeau = (m) => rentCadeauRemplie(m) ? (m.rentabilite.revenuPotentiel || 0) : ((m.cadeau && m.cadeau.montant) || 0);
+const dateCadeau = (m) => dateComptaRent(m);
+const valeurCadeau = (m) => (m.rentabilite && m.rentabilite.revenuPotentiel) || 0;
 function aggCadeau(pred) {
   let val = 0, cout = 0, n = 0;
   machines.forEach(m => {
-    if (!estCadeauRent(m)) return;
+    if (!rentCadeauRemplie(m)) return;
     const dref = dateCadeau(m);
     if (!dref || !pred(dref)) return;
     val += valeurCadeau(m);
-    cout += rentCadeauRemplie(m) ? (m.rentabilite.coutTotal || 0) : 0;
+    cout += m.rentabilite.coutTotal || 0;
     n++;
   });
   return { val, cout, n };
@@ -9857,7 +9878,7 @@ function rendreRecapCadeaux() {
 }
 function toggleCadeauRent() {
   rentCadeau = !rentCadeau;
-  document.getElementById("btn-cadeau").classList.toggle("actif", rentCadeau);
+  document.getElementById("rent-btn-offert").classList.toggle("actif", rentCadeau);
   calcRentApp();
 }
 function toggleComebackRent() {
@@ -10122,9 +10143,9 @@ function ouvrirEditRent(id) {
   document.getElementById("re-hfact").value = r ? r.heuresFacturees : (hTrav ? Math.round(hTrav * 100) / 100 : "");
   document.getElementById("re-debut").value = (r && r.dateDebut) ? r.dateDebut : dateDebutDefaut(m);
   document.getElementById("re-fin").value = (r && r.dateFin) ? r.dateFin : (m.livreLe || isoLocal(new Date()));
-  // v168 : un bon fermé en 🎁 cadeau s'ouvre en cadeau — sauf si la rentabilité a été enregistrée après
+  // v178 : la bascule 🎁 « offert » reprend ce qui a été enregistré
   rentCadeau = estCadeauRent(m);
-  document.getElementById("btn-cadeau").classList.toggle("actif", rentCadeau);
+  document.getElementById("rent-btn-offert").classList.toggle("actif", rentCadeau);
   rentComeback = !!(r && r.comeback);
   document.getElementById("btn-comeback").classList.toggle("actif", rentComeback);
   // Pièces : copie de travail
@@ -11060,15 +11081,10 @@ function carteHTML(m, statut) {
   // v176 : les montants sont dans un <span class="cout-seul"> — cachés pour qui n'a pas l'option « Voir les coûts »
   const badgeFactureTxt = F && F.qbo && F.qbo.id
     ? `📗 Facture${F.qbo.doc ? " n° " + echap(F.qbo.doc) : ""}<span class="cout-seul"> · ${soumArgent(F.qbo.total != null ? F.qbo.total : F.total)}</span>${qboEstTest(F.qbo) || !F.qbo.realm ? " · 🧪 test" : ""}` : "";
-  const badgeFacture = m.cadeau   // v168 : 🎁 payé comptant, pas de facture QuickBooks
-    ? `<span class="badge badge-cadeau" title="Fermé en cadeau${m.cadeau.par ? " par " + echap(m.cadeau.par) : ""} — payé comptant, pas de facture QuickBooks">🎁 Cadeau · payé comptant${m.cadeau.montant ? `<span class="cout-seul"> · ${soumArgent(m.cadeau.montant)}</span>` : ""}</span>`
-    : badgeFactureTxt
+  const badgeFacture = badgeFactureTxt
     ? (F.qbo.url ? `<a class="badge badge-facture" href="${echap(F.qbo.url)}" target="_blank" rel="noopener" title="Ouvrir la facture dans QuickBooks" style="text-decoration:none">${badgeFactureTxt} ↗</a>`
                  : `<span class="badge badge-facture">${badgeFactureTxt}</span>`)
     : (F && F.confirmeLe && (m.statut === "afacturer" || m.statut === "prete") ? `<span class="badge badge-afact">🧾 Facturation prête<span class="cout-seul"> · ${soumArgent(F.sousTotal)} av. taxes</span></span>` : "");
-  // v168 — 🎁 discret en haut à droite : fermer le bon en cadeau (payé comptant, pas de facture QuickBooks)
-  const btnCadeau = (m.statut === "afacturer" || m.statut === "commande") && !m.cadeau && typeof factPeutFacturer === "function" && factPeutFacturer()
-    ? `<button type="button" class="btn-cadeau cadeau-discret" title="🎁 Cadeau : payé comptant, pas de facture QuickBooks — ferme le bon" onclick="factCadeau('${m.id}')">🎁</button>` : "";
   const piecesOK = piecesToutesVerifiees(m);
   const nbP = nbPiecesCochees(m);
   const compteurP = nbP.total > 0 ? ` (${nbP.ok}/${nbP.total})` : "";
@@ -11114,7 +11130,7 @@ function carteHTML(m, statut) {
              ondragend="this.classList.remove('glisse')">
       <div class="carte-haut">
         <span class="carte-nom">${m.numeroBT ? `<span class="num-bt" title="Bon de travail">${echap(m.numeroBT)}</span>` : ""}${m.interne ? `<span class="badge badge-interne" style="margin-right:6px">🏭 Garage</span>` : ""}${echap(nomMachine(m))}${m.numeroMachine ? `<span class="num-machine" title="N° de machine (carton)">🏷️ ${echap(m.numeroMachine)}</span>` : ""}</span>
-        ${m.reference ? `<span class="ref">${echap(m.reference)}</span>` : ""}${btnCadeau}
+        ${m.reference ? `<span class="ref">${echap(m.reference)}</span>` : ""}
       </div>
       ${m.client ? `<div class="client">👤 ${echap(m.client)}${telAffiche ? " · " + telAffiche : ""}</div>` : (telAffiche ? `<div class="client">${telAffiche}</div>` : "")}
       ${m.travaux ? `<div class="travaux">${echap(m.travaux)}</div>` : ""}
@@ -11180,10 +11196,8 @@ function deplacer(id, statut) {
   if (statut !== "afacturer") delete m.pretAFacturerLe;
   if (statut !== "assurance") delete m.assuranceDepuis;
   // v168 — dans « Facturé » (sans passer par QuickBooks) : les pièces facturées sortent de l'inventaire.
-  // Un bon qui ressort de « Facturé » n'est plus un cadeau (il sera refacturé ; le stock suivra la différence).
   let inv = null;
   if (statut === "prete" && typeof invSynchroBT === "function") { const L = factLignesPour(m); inv = invSynchroBT(L.m, L.lignes, L.source); }
-  if (statut !== "prete" && m.cadeau) delete m.cadeau;
   sauvegarder();
   if (inv && inv.n) toastAviser(`📦 ${inv.n} article(s) sorti(s) de l'inventaire (${m.numeroBT || "bon"} facturé)`, true);
 }
@@ -12816,6 +12830,7 @@ function invFusionnerMouv(serveur) {
   const neufs = serveur.filter(x => x && x.id && !ids.has(x.id));
   if (!neufs.length) return 0;
   invMouv = invMouv.concat(neufs).sort((a, b) => String(a.ts || "").localeCompare(String(b.ts || "")));
+  try { purgerCadeauxMouv(); } catch (_) {}   // v178-FAC : les mouvements reçus du serveur sont purgés
   return neufs.length;
 }
 // Reçu du serveur (temps réel) : fusion, jamais un simple remplacement
@@ -15770,12 +15785,14 @@ function factOuvrir(id) {
   }
   document.getElementById("fact-memo").value = factMemo;
   document.getElementById("fact-resultat").innerHTML = "";
+  try { factNotesOuvrir(); } catch (_) {}   // v178-FAC : notes d'atelier — ne peut jamais empêcher l'ouverture
   factRendre();
   document.getElementById("fact-pop").classList.add("ouvert");
   factRendreQbo(qboEtat);
   qboStatut(true).then(e => { factRendreQbo(e); if (factBtId === id && !factEnCours) factRendre(); }).catch(() => {});   // v159 : l'entreprise branchée décide de « déjà facturé »
 }
 function factFermer() {
+  try { factNoteBrouillon(); } catch (_) {}   // v178-FAC : une note tapée mais pas ajoutée est gardée
   document.getElementById("fact-pop").classList.remove("ouvert");
   factBtId = null; factRangs = []; factContexte = null;
 }
@@ -16013,6 +16030,7 @@ function factLignesFinales(rangs) {
 function factEnregistrer(silencieux) {
   const m = machines.find(x => x.id === factBtId);
   if (!m) return null;
+  if (!silencieux) { try { factNoteBrouillon(); } catch (_) {} }   // v178-FAC : jamais depuis l'appel silencieux (factLignesPour)
   try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (_) {}
   const t = factMajTotaux();
   const u = utilisateurCourant();
@@ -16036,8 +16054,8 @@ function factEnregistrer(silencieux) {
 
 // ═══════════════════════════════════════════════════════════════
 //  v168 — L'INVENTAIRE SUIT LA FACTURATION FINALE
-//  Les pièces sortent du stock quand le bon est facturé (facture QuickBooks, passage dans « Facturé »,
-//  🎁 cadeau), d'après les lignes FINALES de la facturation — pas la liste de pièces du BT à la livraison.
+//  Les pièces sortent du stock quand le bon est facturé (facture QuickBooks, passage dans « Facturé »),
+//  d'après les lignes FINALES de la facturation — pas la liste de pièces du BT à la livraison.
 //  m.invSorties = ce que CE bon a déjà sorti ({ NUM: { num, qte, prixU } }) : une facture corrigée
 //  sort seulement la différence, ou remet en stock ce qui n'est plus facturé.
 // ═══════════════════════════════════════════════════════════════
@@ -16112,7 +16130,7 @@ function invSynchroBT(m, lignes, source) {
   if (!m) return { n: 0 };
   const plan = invPlanBT(m, lignes);
   const u = utilisateurCourant();
-  const ref = (m.numeroBT || m.nom || "") + (source === "cadeau" ? " · 🎁 cadeau" : "");
+  const ref = m.numeroBT || m.nom || "";
   const sorties = {};
   let n = 0;
   plan.rangs.forEach(r => {
@@ -16158,52 +16176,12 @@ function factMajInventaire() {
   z.innerHTML = factInvHTML(m, factLignesFinales());
 }
 
-// ── 🎁 Cadeau : payé comptant, pas de facture QuickBooks. Le bon se ferme et les pièces sortent du stock. ──
-let cadeauBtId = null;
-function factCadeau(id) {
-  if (!factPeutFacturer()) { toastAviser("🔒 Réservé à l'administration.", false); return; }
-  const m = machines.find(x => x.id === id);
-  if (!m) return;
-  if (m.cadeau) { toastAviser("🎁 Ce bon est déjà fermé en cadeau.", false); return; }
-  if (clBloquant(m)) { toastAviser("☑️ " + clBloquant(m), false); return; }
-  const { m: m2, lignes, source } = factLignesPour(m);
-  cadeauBtId = m2.id;
-  const ventes = lignes.filter(l => l.type !== "note");
-  const st = factArr(ventes.reduce((t, l) => t + factArr(soumNum(l.qte) * soumNum(l.prix)), 0));
-  const F = m2.facturation || {};
-  const qbo = F.qbo && F.qbo.id && qboMemeEntreprise(F.qbo) ? F.qbo : null;
-  document.getElementById("cadeau-sous").textContent = [m2.numeroBT, nomMachine(m2), m2.client].filter(Boolean).join(" · ");
-  document.getElementById("cadeau-corps").innerHTML =
-    `<div class="fact-info">Payé comptant : <strong>aucune facture QuickBooks</strong>. Le bon se ferme et ses pièces sortent de l'inventaire.</div>` +
-    (qbo ? `<div class="fact-avert">📗 Ce bon a déjà la facture QuickBooks${qbo.doc ? " n° " + echap(qbo.doc) : ""}. Le cadeau ne l'annule pas : annule-la dans QuickBooks.</div>` : "") +
-    `<div class="cadeau-val">Valeur : <strong>${soumArgent(st)}</strong> avant taxes · ${ventes.length} ligne${ventes.length > 1 ? "s" : ""} ` +
-    `<span class="so-mini">(${source === "facturation" ? "facturation enregistrée" : "suggestion : soumission + pièces utilisées au BT"})</span></div>` +
-    `<div class="fact-inv">${factInvHTML(m2, lignes)}</div>`;
-  document.getElementById("cadeau-pop").classList.add("ouvert");
-}
-function cadeauFermer() { document.getElementById("cadeau-pop").classList.remove("ouvert"); cadeauBtId = null; }
-function cadeauConfirmer(livrer) {
-  const m0 = machines.find(x => x.id === cadeauBtId);
-  if (!m0) { cadeauFermer(); return; }
-  const { m, lignes } = factLignesPour(m0);
-  const ventes = lignes.filter(l => l.type !== "note");
-  const u = utilisateurCourant();
-  m.cadeau = { le: new Date().toISOString(), par: u ? u.nom : "", montant: factArr(ventes.reduce((t, l) => t + factArr(soumNum(l.qte) * soumNum(l.prix)), 0)) };
-  const inv = invSynchroBT(m, lignes, "cadeau");
-  delete m.pretAFacturerLe; delete m.assuranceDepuis;
-  if (livrer) { m.statut = "archive"; m.livreLe = new Date().toISOString().slice(0, 10); }
-  else m.statut = "prete";
-  sauvegarder();
-  cadeauFermer();
-  if (factBtId === m.id) factFermer();
-  toastAviser("🎁 " + (m.numeroBT || "Bon") + " fermé en cadeau" + (livrer ? " et livré" : " — dans « Facturé »") + (inv.n ? " · 📦 " + inv.n + " article(s) sorti(s) du stock" : ""), true);
-}
-
 // ── Envoi à QuickBooks : la facture est créée (ou mise à jour) puis ouverte ──
 async function factQuickBooks(btn) {
   if (factEnCours) return;
   const m = machines.find(x => x.id === factBtId);
   if (!m) return;
+  try { factNoteBrouillon(); } catch (_) {}   // v178-FAC : note tapée mais pas ajoutée (les notes ne partent jamais dans la facture)
   try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (_) {}
   const lignes = factLignesFinales();
   const ventes = lignes.filter(l => l.type !== "note");
@@ -17397,6 +17375,7 @@ function invSauverMouv() {
         if (!error && data && Array.isArray(data.donnees)) invFusionnerMouv(data.donnees);
       } catch (_) {}
     }
+    try { purgerCadeauxMouv(); } catch (_) {}   // v178-FAC : jamais de trace de l'ancien cadeau dans l'écriture
     // Garde-fou : on conserve les 8000 derniers mouvements dans la ligne partagée.
     if (invMouv.length > 8000) invMouv = invMouv.slice(-8000);
     localStorage.setItem(CLE_MOUV, JSON.stringify(invMouv));
@@ -17782,7 +17761,7 @@ function invEnCommande(num) {
   return t;
 }
 // Quantité réservée par les bons de travail encore ouverts
-// v168 : un bon facturé (ou 🎁 cadeau) ne réserve plus rien — ses pièces sont sorties du stock. Revenu en atelier
+// v168 : un bon facturé ne réserve plus rien — ses pièces sont sorties du stock. Revenu en atelier
 // après la facture, il réserve seulement ce qui dépasse ce qu'il a déjà sorti.
 function invReserve(num) {
   const c = invNorm(num);
@@ -17791,7 +17770,7 @@ function invReserve(num) {
     if (m.statut === "archive") return;
     const sortis = m.invSorties && typeof m.invSorties === "object" ? m.invSorties : null;
     if (m.invSortieFaite && !sortis) return;                  // sorti à la livraison, avant la v168
-    if (sortis && (m.statut === "prete" || m.cadeau)) return;
+    if (sortis && m.statut === "prete") return;
     let q = 0;
     (m.pieces||[]).forEach(pc => { if (invNorm(pc.num) === c) q += invN(pc.qte) || 1; });
     if (sortis && sortis[c]) q = Math.max(0, q - invN(sortis[c].qte));
@@ -19361,7 +19340,7 @@ function invSortieMachine(m) {
 }
 
 // ═══ v170 — STOCK À CORRIGER ═══════════════════════════════
-// Bons facturés (« Facturé », 🎁 cadeau, livrés depuis moins de 60 jours) dont la facturation ne concorde pas avec le
+// Bons facturés (« Facturé », livrés depuis moins de 60 jours) dont la facturation ne concorde pas avec le
 // journal : pièces facturées jamais sorties du stock (BT-103 : 2,2 WCFQTC), ou sorties puis retirées de la facture.
 // Rien ne bouge tout seul : on coche et on touche « Mettre le stock à jour ». Les bons récents sont cochés d'avance.
 function invLignesBon(m) {
@@ -19375,11 +19354,11 @@ function invBonsACorriger() {
     if (!m || !m.id) return;
     let age = 0;
     if (m.statut === "archive") {
-      if (!m.cadeau && !m.invSortieFaite && !(m.facturation && m.facturation.confirmeLe)) return;
+      if (!m.invSortieFaite && !(m.facturation && m.facturation.confirmeLe)) return;
       const t = m.livreLe ? new Date(m.livreLe + "T12:00:00").getTime() : NaN;
       if (!(t > 0) || maintenant - t > 60 * J) return;
       age = Math.max(0, Math.round((maintenant - t) / J));   // arrondi : un changement d'heure ne fait pas perdre un jour
-    } else if (m.statut !== "prete" && !m.cadeau) return;
+    } else if (m.statut !== "prete") return;
     const L = invLignesBon(m);
     const ecarts = invPlanBT(m, L.lignes).rangs.filter(r => r.suivi && r.delta);
     if (ecarts.length) res.push({ m, ecarts, source: L.source, age, cocher: age <= 30 });
@@ -19397,7 +19376,7 @@ function invRattrapageRendre() {
       <span class="so-mini">(un appareil avec une vieille version de l'app, ou une sortie écrasée)</span></div>` +
     bons.map(b => {
       const m = b.m;
-      const ou = m.cadeau ? "🎁 cadeau" : m.statut === "archive" ? `livré ${b.age ? "il y a " + b.age + " j" : "aujourd'hui"}` : `dans « ${echap(libelle("prete"))} »`;
+      const ou = m.statut === "archive" ? `livré ${b.age ? "il y a " + b.age + " j" : "aujourd'hui"}` : `dans « ${echap(libelle("prete"))} »`;
       return `<div class="inv-ratt-bon">
         <input type="checkbox" id="ratt-${echap(m.id)}" data-bt="${echap(m.id)}" ${b.cocher ? "checked" : ""}>
         <label for="ratt-${echap(m.id)}"><strong>${echap(m.numeroBT || "sans n°")}</strong> · ${echap(nomMachine(m))}${m.client ? " · " + echap(m.client) : ""} <span class="so-mini">— ${ou}${b.source === "suggestion" ? " · d'après la suggestion (facturation pas enregistrée)" : ""}</span>` +
@@ -19497,7 +19476,7 @@ function invRendreVentes() {
   const liste = Object.values(parArt).sort((a,b) => ((b.vente-b.cout) - (a.vente-a.cout)) || (b.vente - a.vente));
   const z = document.getElementById("inv-v-liste");
   if (!liste.length) {
-    z.innerHTML = `<div class="inv-vide">Aucune vente sur cette période.<br><span class="so-mini">Rappel : une vente apparaît quand le bon de travail est facturé (ou fermé en 🎁 cadeau).</span></div>`;
+    z.innerHTML = `<div class="inv-vide">Aucune vente sur cette période.<br><span class="so-mini">Rappel : une vente apparaît quand le bon de travail est facturé.</span></div>`;
     return;
   }
   z.innerHTML = `<table class="inv-prev-t"><thead><tr>
@@ -24546,6 +24525,11 @@ async function demarrerDonnees() {
   donneesChargees = true;
   await charger();                // récupère depuis Supabase puis abonne au temps réel
   //@@v178-FAC demarrerDonnees
+  try {   // v178-FAC : migration au chargement (bons et journal d'inventaire), une seule écriture de chaque ligne si quelque chose a changé
+    const nB = purgerCadeaux(machines), nJ = purgerCadeauxMouv();
+    if (nB && !motifRefusEcriture(LIGNE_ID, machines)) sauvegarder();
+    if (nJ && !motifRefusEcriture(LIGNE_MOUV, invMouv)) invSauverMouv();
+  } catch (_) {}
   afficher();                     // ré-affiche avec les données réelles
   migrerComptes();                // noms de famille et identifiants des dossiers
   try { nettoyerPunchsOublies(); } catch (_) {}
@@ -31074,8 +31058,82 @@ try {
 .pcs-plus { text-align: center; padding: 6px 0; }
 </style>
 <script id="v178-PCS"></script>
-<style id="v178-FAC"></style>
-<script id="v178-FAC"></script>
+<style id="v178-FAC">
+  /* v178-FAC — 📝 Notes d'atelier dans Facturer */
+  #fact-notes { border:1px solid var(--bordure); background:var(--surface-2); border-radius:10px; margin:0 0 10px; }
+  #fact-notes > summary { display:list-item; list-style-position:inside; min-height:44px; box-sizing:border-box; padding:11px 12px; cursor:pointer; font-size:13.5px; font-weight:800; color:var(--encre); line-height:22px; }
+  #fact-notes .fact-notes-interne { margin-left:8px; font-size:11.5px; font-weight:700; color:var(--sourdine); white-space:nowrap; }
+  #fact-notes .fact-notes-liste { list-style:none; margin:0; padding:0 12px; max-height:240px; overflow-y:auto; }
+  #fact-notes .fact-notes-liste li { display:flex; flex-wrap:wrap; gap:2px 8px; padding:6px 0; border-top:1px solid var(--bordure); font-size:13px; line-height:1.45; }
+  #fact-notes .fact-notes-liste .puce { color:var(--c-prete); flex:0 0 auto; }
+  #fact-notes .fact-notes-liste .txt { flex:1 1 0; min-width:0; overflow-wrap:anywhere; color:var(--encre); }
+  #fact-notes .fact-notes-liste .meta { flex:0 0 100%; padding-left:22px; font-size:11.5px; color:var(--sourdine); }
+  #fact-notes .fact-notes-liste .fact-notes-vide { color:var(--sourdine); font-size:12.5px; }
+  #fact-notes .fact-notes-saisie { display:flex; gap:8px; align-items:center; padding:10px 12px 12px; }
+  #fact-notes .champ { font-size:16px; min-width:0; flex:1 1 auto; }
+  #fact-notes .fact-notes-saisie button { min-height:44px; flex:0 0 auto; }
+  @media (max-width: 820px) { #fact-notes .fact-notes-liste { max-height:none; } }
+</style>
+<script id="v178-FAC">
+// v178-FAC — 📝 Notes d'atelier dans la fenêtre Facturer (A4). Les notes du bon (notesLive, sinon notesTech) sont LUES ici ;
+// elles ne partent JAMAIS dans la facture : ni factMemo, ni la charge QuickBooks, ni le CSV (intouchés).
+// Pure, sans muter le bon : liveNotes(m) CRÉE m.notesLive à partir de notesTech, elle n'est appelée qu'à l'ajout d'une note.
+function factNotesAtelier(m) {
+  if (!m) return [];
+  let liste;
+  if (Array.isArray(m.notesLive)) {
+    liste = m.notesLive.map(n => (typeof n === "string" ? { texte: n } : n)).filter(n => n && String(n.texte || "").trim())
+      .map(n => ({ texte: String(n.texte).trim(), tech: n.tech || "", quand: n.quand || "" }));
+  } else {   // bon jamais ouvert en direct : on lit les lignes écrites sur le bon (nettoyées de leur puce)
+    liste = String(m.notesTech || "").split("\n").map(t => t.replace(/^[\s•\-\*·]+/, "").trim()).filter(Boolean)
+      .map(t => ({ texte: t, tech: "", quand: "" }));
+  }
+  return liste.reverse();   // le plus récent en premier, comme le live et la TV
+}
+// Rend la liste et le compte du titre. Ne touche JAMAIS au champ de saisie (statique). Renvoie le nombre de notes.
+function factNotesRendre() {
+  const ul = document.getElementById("fact-notes-liste"), tt = document.getElementById("fact-notes-titre");
+  if (!ul || !tt) return 0;
+  const m = machines.find(x => x.id === factBtId);
+  const notes = m ? factNotesAtelier(m) : [];
+  tt.textContent = "📝 Notes d'atelier (" + notes.length + ")";
+  ul.innerHTML = notes.length ? notes.map(n => {
+    const meta = (n.quand ? "🕐 " + liveDateHeure(n.quand) : "") + (n.tech ? (n.quand ? " · " : "") + n.tech : "");
+    return `<li><span class="puce">✔</span><span class="txt">${echap(n.texte)}</span>${meta ? `<span class="meta">${echap(meta)}</span>` : ""}</li>`;
+  }).join("") : `<li class="fact-notes-vide">Aucune note d'atelier sur ce bon.</li>`;
+  return notes.length;
+}
+// À l'ouverture de la fenêtre : champ vidé, liste rendue ; sur téléphone, bloc replié s'il y a plus de 3 notes
+function factNotesOuvrir() {
+  const c = document.getElementById("fact-note-champ");
+  if (c) c.value = "";
+  const n = factNotesRendre();
+  const d = document.getElementById("fact-notes");
+  if (d) d.open = !(n > 3 && surTelephone());
+}
+// Ajoute la note tapée : le bon est retrouvé par id au moment d'écrire, puis sauvegarde (m.notesTech suit via liveMajNotesTech)
+function factNoteAjouter(sansFocus) {
+  const c = document.getElementById("fact-note-champ");
+  const t = c ? String(c.value || "").trim() : "";
+  if (!t) { if (c && !sansFocus) { try { c.focus(); } catch (_) {} } return false; }
+  if (!factPeutFacturer()) return false;
+  const m = machines.find(x => x.id === factBtId);
+  if (!m) return false;
+  const u = utilisateurCourant();
+  liveNotes(m).push({ texte: t, tech: u ? u.nom : (m.technicien || ""), quand: new Date().toISOString() });
+  liveMajNotesTech(m);
+  c.value = "";
+  sauvegarder();
+  factNotesRendre();
+  if (!sansFocus) { try { c.focus(); } catch (_) {} }
+  return true;
+}
+// Brouillon non vide à la fermeture, à « Enregistrer » ou à « Facturer avec QuickBooks » : ajouté comme note
+function factNoteBrouillon() {
+  const c = document.getElementById("fact-note-champ");
+  if (factBtId && c && String(c.value || "").trim()) factNoteAjouter(true);
+}
+</script>
 <style id="v178-TAB"></style>
 <script id="v178-TAB"></script>
 <style id="v178-CALA"></style>
