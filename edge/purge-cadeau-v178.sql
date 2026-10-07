@@ -4,6 +4,8 @@
 --
 -- ⚠️  CE FICHIER N'A PAS ÉTÉ EXÉCUTÉ. Il a été livré tel quel avec la v178 : aucun agent n'a touché à la production.
 --     C'est le patron (ou une personne autorisée) qui l'exécute, dans l'ordre ci-dessous.
+--     (Les requêtes ont seulement été essayées sur un PostgreSQL 16 local jetable, avec des données factices :
+--     bons avec et sans cadeau, rentabilite.cadeau, instantanés, relance sans effet. Jamais sur la production.)
 --
 -- ⚠️  LA PURGE EST IRRÉVERSIBLE. Après l'étape B, on ne saura plus quels bons avaient été fermés « payé comptant » :
 --     la liste (étape A) disparaît des données de l'application, des lignes 1 et 12 ET des instantanés
@@ -32,7 +34,7 @@
 --   JAMAIS touchés : rentabilite (y compris rentabilite.cadeau, la bascule 🎁 « offert » de la Rentabilité, qui
 --   reste dans l'application), statut, livreLe, chrono, pieces, photos, invSorties, numeroBT.
 --
--- Types vérifiés par lecture du schéma (6 oct. 2026) : tableau.donnees et tableau_sauvegardes.donnees sont jsonb ;
+-- Types vérifiés par lecture du schéma (7 oct. 2026, lecture seule) : tableau.donnees et tableau_sauvegardes.donnees sont jsonb ;
 -- tableau_sauvegardes(id, quand, ligne_id, donnees). Si ce n'était plus le cas, la vérification ci-dessous le montre.
 -- ============================================================================
 
