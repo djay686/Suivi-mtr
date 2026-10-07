@@ -13,6 +13,8 @@ for (const f of fs.readdirSync(D)) { const p = path.join(D, f); if (fs.statSync(
 
 const libs = {};
 for (const f of fs.readdirSync(path.dirname(path.resolve(testFile)))) if (/\.js$/.test(f)) libs[f] = fs.readFileSync(path.join(path.dirname(path.resolve(testFile)), f), "utf8");
+// v178-S0a : un test-v178-<lot>.js à la racine fait require("./outils-v178/test-lib-v178.js") (comme sous node) : on sert aussi ce dossier
+{ const rel = path.relative(path.dirname(path.resolve(testFile)), __dirname).split(path.sep).join("/"); if (rel && !rel.startsWith("..")) for (const f of fs.readdirSync(__dirname)) if (/\.js$/.test(f)) libs[rel + "/" + f] = fs.readFileSync(path.join(__dirname, f), "utf8"); }
 (async () => {
   const t0 = Date.now();
   const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
