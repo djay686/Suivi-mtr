@@ -207,7 +207,61 @@ Douze demandes, réalisées en parallèle par onze agents dans des zones de code
 - Script BRP : « Vérifier les mises à jour » dans Tampermonkey sur chaque PC.
 
 ## Tests
-<!-- TESTS : table complétée à l'intégration finale -->
+- Chaque lot a son fichier `test-v178-<lot>.js` (`test-v178.js` les lance tous ; `node test-v178-srv.js` pour le
+  serveur). Chacun **échoue sur la v177** et passe sur la v178 ; chacun a été attaqué par des fautes volontaires
+  (« sabotages ») : **243 sur 243 attrapées** (socle 10 + 15, serveur 23, note d'appel 17, pièces BRP 16, cadeau et
+  Facturer 22, sons 21, créneaux 13, calendrier 17, mini-calendrier 20, bon → calendrier 20, tableau 25, bons actifs 24).
+- Comment ils ont tourné : Node sans jsdom dans l'environnement de travail (registre npm bloqué) → **Chromium**
+  (Playwright) avec un faux jsdom (`outils-v178/run-in-chromium.js`), les tests existants inchangés. Les mêmes
+  fichiers se lancent comme d'habitude avec jsdom : `NODE_PATH=… node test-v178.js ./index.html`.
+- Les 15 ancres-commentaires `//@@v178-…` posées pour la fusion en parallèle restent dans index.html (des commentaires :
+  les tests des lots les vérifient).
+
+  | Test | Résultat |
+  |---|---|
+  | `test-v178-a6.js` (bon → calendrier) | 107/107 |
+  | `test-v178-a9.js` (mini-calendrier) | 107/107 |
+  | `test-v178-bta.js` (bons actifs) | 150/150 |
+  | `test-v178-cal-a.js` (créneaux par technicien) | 47/47 |
+  | `test-v178-cal-b.js` (calendrier côte à côte) | 100/100 |
+  | `test-v178-com.js` (note d'appel, confirmation) | 125/125 |
+  | `test-v178-fac.js` (cadeau, notes Facturer) | 83/83 |
+  | `test-v178-helpers.js` (arrivée, temps restant) | 92/92 |
+  | `test-v178-pieces.js` (pièce BRP) | 95/95 |
+  | `test-v178-socle.js` (capacité) | 44/44 |
+  | `test-v178-son.js` (sons) | 112/112 |
+  | `test-v178-tab.js` (tableau, fin de session, TV) | 166/166 |
+  | `test-v178-srv.js` (serveur, Node) | 55/55 |
+  | `edge/test-sms-entrant-v178.html` | 107/107 |
+  | `edge/test-sms-entrant-v172.html` | 33/33 |
+  | `edge/test-quickbooks-v160.mjs` | 57/57 (avec un transpileur TypeScript à la place d'esbuild) |
+  | `test-v177.js` | 48/48 |
+  | `test-v176.js` | 82/82 |
+  | `test-v175.js` | 47/47 |
+  | `test-v174.js` | 36/36 |
+  | `test-v173.js` | 14/14 |
+  | `test-v172.js` | 52/52 |
+  | `test-v172b.js` | 24/24 |
+  | `test-v170.js` | 77/77 |
+  | `test-v169.js` | 54/54 |
+  | `test-v168.js` (réécrit sans le cadeau, mêmes fixtures) | 56/56 |
+  | `test-v168b.js` | 35/35 (34/35 un samedi : défaut déjà présent, la carte du rendez-vous du jour) |
+  | `test-v167.js` | 72/72 |
+  | `test-v166.js` | 49/49 |
+  | `test-v165.js` | 26/26 |
+  | `test-v164.js` | 63/63 |
+  | `test-v163.js` | 34/34 |
+  | `test-v162.js` | 36/36 |
+  | `test-v161.js` | 42/42 |
+  | `test-v160.js` | 16/16 |
+  | `test-v159.js` | 63/63 |
+  | `test-v159b.js` | 8/8 |
+  | `test-v171.js` | non lancé : exige `bt089/` et `bt089.zip`, absents du dépôt |
+
+- Ce qui n'a pas pu être vérifié ici et reste à regarder à l'atelier : l'iPad et le cellulaire réels (son au premier
+  toucher, commutateur silencieux, musique Bluetooth, clavier, glisser-déposer, Tampermonkey absent sur iPad), la TV
+  Fire TV réelle, les vrais rôles et horaires des employés (nombre de blocs par jour), le SQL sur le vrai Supabase
+  (essayé sur un PostgreSQL local jetable), le script BRP contre le vrai site.
 
 ## À faire au déploiement
 1. **Supabase › SQL Editor** : exécuter `edge/confirmation-auto-v178.sql` (la colonne existe déjà : l'ALTER ne fait

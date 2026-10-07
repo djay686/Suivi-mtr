@@ -15,6 +15,12 @@ lancés tels quels dans Chromium (Playwright, déjà installé dans l'environnem
 | `test-lib-v178.js` | Socle commun des nouveaux tests : faux Supabase (select/insert/upsert/update/delete, eq/neq/in/is/order/limit, pannes, `pousser()` pour simuler un autre poste), chargement de l'app, faux AudioContext et `navigator.vibrate`, `jourOuvrableIso`, `connecter`, `ok()`. | `const L = require("./outils-v178/test-lib-v178.js")` |
 | `test-v178-demo.js` | Exemple minimal d'utilisation du socle. | `node outils-v178/run-in-chromium.js outils-v178/test-v178-demo.js ./index.html` |
 
+Résultat de la **v178** livrée (7 oct. 2026, Chromium 141, `MTR_FAKE_NOW` = mercredi) : `outils-v178/run-all.sh` →
+33 fichiers, 0 en échec (934 assertions v159 à v177 + 1 228 des `test-v178-*.js`) ; `node test-v178-srv.js` 55/55 ;
+Edge 107/107 et 33/33. Un samedi simulé : seul `test-v168b.js` perd une assertion (défaut connu, antérieur à la v178).
+`resoudre-blocs.js` : reconstruit la zone des blocs par lot en fin d'index.html quand deux lots voisins fusionnent en
+conflit (ou après une résolution qui l'a dupliquée).
+
 Base de référence mesurée sur la **v177** (7 oct. 2026, Chromium 141, `MTR_FAKE_NOW` = mercredi) : **804/804** sur les
 19 fichiers v159 à v175 (v159 63, v159b 8, v160 16, v161 42, v162 36, v163 34, v164 63, v165 26, v166 49, v167 72,
 v168 56, v168b 35, v169 54, v170 77, v172 52, v172b 24, v173 14, v174 36, v175 47 — mêmes chiffres que sur la v175),

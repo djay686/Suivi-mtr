@@ -5445,8 +5445,11 @@ function rafraichirVues() {
     if (ea && ea.classList.contains("ouvert") && typeof rendreEcranAtelier === "function") rendreEcranAtelier();
   } catch (_) {}
   try { if (typeof ordreRafraichir === "function") ordreRafraichir(); } catch (_) {}   // v164 : ordre de travail
+  //@@v178-A4 rafraichir
   try { if (factBtId) factNotesRendre(); } catch (_) {}   // v178-FAC : la liste des notes d'atelier suit (temps réel, autre poste)
+  //@@v178-A9 rafraichir
   try { if (typeof window.__demCalRafraichir === "function") window.__demCalRafraichir(); } catch (_) {}   // v178-CAL9 : le calendrier du sélecteur de créneaux suit les bons
+  //@@v178-A12 rafraichir
   try { if (typeof btaRafraichir === "function") btaRafraichir(); } catch (_) {}   // v178 BTA : Bons de travail actifs
 }
 
@@ -5472,6 +5475,7 @@ function fusionnerAjoutsServeur(serveur) {
   if (ajouts.length) machines = ajouts.concat(machines);   // en tête, là où le serveur les place
   return ajouts;
 }
+//@@v178-FAC purge
 // v178-FAC-PURGE-DEBUT — migration idempotente : retire les traces de l'ancien « cadeau » (bons et journal d'inventaire).
 // Seul endroit de l'app qui nomme encore ce mot. Ne touche JAMAIS rentabilite, statut, livreLe, chrono, pieces, photos, invSorties.
 function purgerCadeaux(liste) {
@@ -7365,6 +7369,7 @@ function rdvOccupationJour(iso) {
     .sort((a,b) => a[0] - b[0]);
 }
 
+//@@v178-S0a capacite
 // ═══ v178-S0a : moteur de capacité des techniciens ═══════════════════════════
 // Fonctions PURES (aucun réseau, aucune écriture) sur machines, EMPLOYES, dispoOverride et rdvConfig.
 // Une place = un technicien capable (rôle admin ou technicien, présent, compétent) qui couvre toute la plage,
@@ -11319,6 +11324,7 @@ function joursDepuis(iso) {
   if (isNaN(d)) return null;
   return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
 }
+//@@v178-S0b helpers
 // v178 S0b : date d'arrivée de la machine et temps restant estimé. Fonctions pures (aucune écriture), chacune dans un
 // try/catch qui rend null. Elles vivent ici, dans le script principal, parce que le premier afficher() passe avant
 // le chargement des blocs suivants : elles ne doivent dépendre d'aucune fonction définie plus bas dans le fichier.
@@ -20781,6 +20787,7 @@ function liveAfficherPage() {
   liveTimer = setInterval(liveTic, 1000);
   liveTic();
 }
+//@@v178-A3 liveVoir
 // v178-COM : ouvre l'écran du bon SANS punch (ni session, ni changement de statut, ni d'arrivée) — jamais ouvrirLive ni liveConnecter.
 // Ce n'est PAS une lecture seule : « ▶ Ajouter mon temps » reste actif. Appelée par 📞 Communications (note d'appel, fil, popup d'appel).
 function liveVoir(id) {
@@ -21044,6 +21051,7 @@ function liveSupprimerNote(i) {
   liveMajNotesTech(m);
   sauvegarder();
 }
+//@@v178-A3 notes
 // v178-COM : ajoute une note d'atelier à un bon (une remarque prise au téléphone). Elle entre dans notesLive / notesTech : on la
 // retrouve donc dans l'écran live, sur la TV du lift, sur le bon imprimé et dans l'assistant. Le bon est retrouvé par id AU MOMENT
 // d'écrire (appliquerLigne1 remplace les objets du tableau quand un autre poste sauvegarde). Renvoie { ok, enAttente, m } ou null.
@@ -22460,6 +22468,7 @@ function enregistrerEtatArrivee(id, e) {
   etatArriveeAppliquer(m, e);
   sauvegarder();
 }
+//@@v178-A12 bloc
 // ═══ v178 BTA — « Bons de travail actifs » : tous les bons sauf les archivés, en CONSULTATION ═══
 // On déplie une ligne pour tout voir sans ouvrir le live (le live démarre un punch et remet le bon en « Réparation en cours »).
 // Rien ici n'écrit dans un bon : ni sauvegarder, ni liveNotes (qui crée m.notesLive à la lecture), ni ouvrirLive au toucher.
@@ -23334,6 +23343,7 @@ async function mdpEnregistrer() {
   } catch (err) { msg.textContent = "Impossible : " + (err.message || "erreur"); }
 }
 async function deconnecter() {
+  //@@v178-SON deconnecter
   await presenceEffacer();
   if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
   if (AUTH_SUPABASE && sb) await authSortir();   // v162 : cet appareil seulement (avant : le compte sautait sur TOUS les appareils)
@@ -23351,6 +23361,7 @@ async function deconnecter() {
   if (typeof soumissions !== "undefined") soumissions = [];
   document.getElementById("ecran-tech").classList.remove("ouvert");
   if (techTimer) { clearInterval(techTimer); techTimer = null; }
+  //@@v178-A12 deconnecter
   try { fermerBonsActifs(); btaVider(); } catch (_) {}   // v178 BTA : fermer la page, vider recherche / filtre / lignes dépliées
   appliquerDroits();
   ouvrirConnexion();
@@ -24999,6 +25010,7 @@ async function demarrerDonnees() {
   if (donneesChargees) return;
   donneesChargees = true;
   await charger();                // récupère depuis Supabase puis abonne au temps réel
+  //@@v178-FAC demarrerDonnees
   try {   // v178-FAC : migration au chargement (bons et journal d'inventaire), une seule écriture de chaque ligne si quelque chose a changé
     const nB = purgerCadeaux(machines), nJ = purgerCadeauxMouv();
     if (nB && !motifRefusEcriture(LIGNE_ID, machines)) sauvegarder();
@@ -25015,6 +25027,7 @@ async function demarrerDonnees() {
   tachesMajBadge();               // v90 : pastille « Tâches » du menu
   marketMajBadge();               // v92 : pastille « Marketplace » (articles en vente)
   invMajDatalist();               // autocomplétion des n° de pièce partout
+  //@@v178-TAB demarrerDonnees
   // v178-TAB : les « N jours » du tableau avancent à minuit. On ne redessine qu'au changement de jour civil, jamais chaque minute (un re-rendu casse le glisser-déposer et le défilement sur iPad).
   try { let jourVu = isoLocal(new Date()); setInterval(() => { try { const j = isoLocal(new Date()); if (j !== jourVu) { jourVu = j; afficher(); } } catch (_) {} }, 60000); } catch (_) {}
 }
@@ -27769,6 +27782,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
     }
     return out;
   }
+  //@@v178-A9 apres-demJours
   // ═══ v178-CAL9 : charge d'ouvrage et mini-calendrier de la semaine (fiche d'une demande > 📅 Proposer des créneaux) ═══
   // Lecture seule : tout se calcule ici, rien n'est écrit. Les plages libres viennent de demHeures (propriété CALA).
   const CHARGE_N2 = 60, CHARGE_N3 = 85;          // v178 : % de charge où la journée passe à l'orange (n2), puis au rouge (n3)
@@ -29492,6 +29506,7 @@ window.brpFormateurRafraichir = function(){ liens = brpData.liens; inexistants =
         n.onclick = () => { try { window.focus(); } catch (_) {} n.close(); };
       }
     } catch (_) {}
+    //@@v178-A11 proposerNote
     try { jouerSon("appelEntrant"); } catch (_) {}   // v178-SON : appel entrant (une seule fois : propositions.has(id) a déjà sorti les doublons)
   }
   if (bcAppel) bcAppel.onmessage = (e) => {
